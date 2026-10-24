@@ -783,20 +783,30 @@ def page_global():
     if df is not None:
         label, unit = IMF_INDICATORS[code]
         countries = df[df.index.isin(list(names))] if names else df[df.index.str.len() == 3]
-        if year in countries.columns:
-            vals = countries[year].dropna()
+        # each country's figure for the chosen year, or its latest one up to 2 years earlier
+        # (big economies often publish to the World Bank months after smaller ones)
+        usable = [y for y in countries.columns if year - 2 <= y <= year]
+        if usable:
+            window_df = countries[usable].apply(pd.to_numeric, errors="coerce")
+            vals = window_df.ffill(axis=1).iloc[:, -1].dropna()
+            used = window_df.apply(lambda r: r.last_valid_index(), axis=1).reindex(vals.index)
+            labels = [f"{names.get(c, c)}" + ("" if used[c] == year else f" ({int(used[c])})")
+                      for c in vals.index]
             fig = go.Figure()
             fig.add_trace(go.Choropleth(
-                locations=vals.index, z=vals.values, text=[names.get(c, c) for c in vals.index],
+                locations=vals.index, z=vals.values, text=labels,
                 colorscale=[[0, "#1B3A5C"], [0.5, "#14181E"], [1, "#E8212B"]],
-                zmid=float(vals.median()), marker_line_color="#000", marker_line_width=0.3,
+                zmid=float(vals.median()),
+                # colour by the middle 90% of countries so a few extremes don't wash everything out
+                zmin=float(vals.quantile(0.05)), zmax=float(vals.quantile(0.95)),
+                marker_line_color="#000", marker_line_width=0.3,
                 colorbar=dict(title=dict(text=unit), thickness=8, tickfont=dict(family=ui.MONO, size=9)),
                 hovertemplate="%{text}<br>%{z:.1f}" + unit + "<extra></extra>"))
             fig.update_layout(height=440, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)",
                               font=dict(family=ui.MONO, color="#AEB8C2"),
                               dragmode=False,
                               geo=dict(bgcolor="rgba(0,0,0,0)", showframe=False, showcoastlines=False,
-                                       landcolor="#11161C", projection_type="natural earth",
+                                       landcolor="#3A414B", projection_type="natural earth",
                                        projection_rotation=dict(lon=0, lat=0, roll=0),
                                        center=dict(lon=0, lat=10), lataxis_range=[-58, 85],
                                        showocean=False, showcountries=True, countrycolor="#000"))
@@ -804,9 +814,10 @@ def page_global():
             st.plotly_chart(fig, width="stretch", key="world_map",
                             config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False})
         src = df.attrs.get("source", "IMF World Economic Outlook")
-        st.caption(f"{label}, {year}. Source: {src}."
+        st.caption(f"{label}, {year}. Grey = no data. Countries that haven't published {year} yet "
+                   f"show their latest figure (year in brackets when you hover). Source: {src}."
                    + (" Years after the latest actual data are IMF projections." if src.startswith("IMF")
-                      else " Pick an earlier year if the latest has no data yet."))
+                      else ""))
         from_imf = df.attrs.get("source", "IMF").startswith("IMF")
         ui.section("Major economies", f"{label} · {'IMF' if from_imf else 'World Bank'}", code="01",
                    about="WEO")
