@@ -143,7 +143,8 @@ def star_rating(target_dir, signal_list, loaded):
             Implies=arrow[implied],
             Agrees="yes" if ok else "no",
         ))
-    stars = round(agree / len(signal_list) * 5) if signal_list else 0
+    # stars are scored out of the signals that actually have data
+    stars = round(agree / counted * 5) if counted else 0
     return stars, pd.DataFrame(rows), agree, counted
 
 
@@ -284,6 +285,26 @@ def risk_appetite(components, loaded, years=3):
     if not zs:
         return None, pd.DataFrame(rows)
     return normal_cdf(float(np.mean(zs))) * 100, pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------- macro momentum
+
+def macro_momentum(items, months=3):
+    """
+    items: [(indicator settings, result)] for economic indicators.
+    Score 0-100 = share of indicators (with a 'good' direction) that improved over `months`.
+    Returns (score, number improving, number counted).
+    """
+    better, counted = 0, 0
+    for ind, res in items:
+        if ind["good_when"] == "neutral" or res["series"] is None:
+            continue
+        move = change_over(res["series"], months)
+        if move is None or move == 0:
+            continue
+        counted += 1
+        better += (move > 0) == (ind["good_when"] == "up")
+    return (better / counted * 100 if counted else None), better, counted
 
 
 # ---------------------------------------------------------------- recessions

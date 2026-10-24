@@ -24,6 +24,15 @@ def _get(url, params=None):
     return response
 
 
+def public_mode():
+    """True on the online version (PUBLIC_MODE = true in the secrets box)."""
+    try:
+        value = st.secrets.get("PUBLIC_MODE", os.environ.get("PUBLIC_MODE", ""))
+    except Exception:
+        value = os.environ.get("PUBLIC_MODE", "")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def get_fred_key():
     """Reads your FRED key from .streamlit/secrets.toml (or the hosting 'secrets' box)."""
     try:
@@ -639,3 +648,27 @@ def load_pmi(path):
     df["date"] = pd.to_datetime(df["date"])
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df.dropna(subset=["value"]).sort_values("date")
+
+
+# ---------------------------------------------------------------- monthly commodity table
+
+def monthly_performance(series_by_name):
+    """
+    series_by_name: {(name, unit): monthly price Series}
+    Returns last price and % change over 1 month, 3 months, 1 year and 5 years.
+    """
+    rows = []
+    for (name, unit), s in series_by_name.items():
+        s = s.dropna()
+        if len(s) < 2:
+            continue
+        last, end = float(s.iloc[-1]), s.index[-1]
+
+        def chg(months):
+            past = s.asof(end - pd.DateOffset(months=months))
+            return None if pd.isna(past) or not past else (last / float(past) - 1) * 100
+        rows.append({"Commodity": name, "Unit": unit, "Last": last, "1M %": chg(1), "3M %": chg(3),
+                     "1Y %": chg(12), "5Y %": chg(60),
+                     "Trend (5Y)": [float(v) for v in s[s.index >= end - pd.DateOffset(years=5)]],
+                     "Month": f"{end:%b %Y}"})
+    return pd.DataFrame(rows)

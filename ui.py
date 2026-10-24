@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from glossary import lookup
 from indicators import EVENTS
 
 # Shared with app.py (filled in once data has loaded)
@@ -119,7 +120,7 @@ div[class*="st-key-cbtn_"] button {{ width: 100%; height: 100%; opacity: 0; curs
 .k-top {{ display: flex; justify-content: space-between; align-items: baseline; }}
 .k-tk {{ font-family: {MONO}; font-size: .7rem; color: {ACCENT}; letter-spacing: .04em; }}
 .k-name {{ font-family: {SANS}; font-size: .68rem; color: {MUTED}; text-transform: uppercase;
-           letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+           letter-spacing: .05em; white-space: normal; line-height: 1.25; }}
 .k-val {{ font-family: {MONO}; font-size: 1.3rem; color: {TEXT}; line-height: 1.35; }}
 .k-foot {{ display: flex; justify-content: space-between; font-family: {MONO}; font-size: .62rem; color: {DIM}; }}
 .up {{ color: {UP}; }} .dn {{ color: {DOWN}; }} .nc {{ color: {MUTED}; }}
@@ -159,6 +160,21 @@ table.t a:hover {{ color: {ACCENT}; }}
            color: {DIM}; display: flex; gap: 16px; white-space: nowrap; overflow: hidden; }}
 .status b {{ color: {ACCENT}; font-weight: 500; }}
 .dot-ok {{ color: {UP}; }} .dot-bad {{ color: {DOWN}; }}
+/* (i) info popovers: click to open, click again to close */
+details.info {{ display: inline-block; position: relative; z-index: 6; margin-left: 5px;
+                vertical-align: 1px; text-transform: none; letter-spacing: 0; }}
+details.info summary {{ list-style: none; cursor: pointer; width: 13px; height: 13px; line-height: 11px;
+    border: 1px solid #4A5560; border-radius: 50%; text-align: center; font: 600 8.5px {MONO};
+    color: {MUTED}; user-select: none; }}
+details.info summary::-webkit-details-marker {{ display: none; }}
+details.info summary:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
+details.info[open] summary {{ background: {ACCENT}; border-color: {ACCENT}; color: #fff; }}
+details.info > div {{ position: absolute; top: 18px; left: -10px; width: 270px; z-index: 60;
+    background: {PANEL_2}; border: 1px solid {ACCENT}; padding: 8px 10px; font: 400 .76rem/1.45 {SANS};
+    color: {TEXT}; white-space: normal; box-shadow: 0 8px 22px rgba(0,0,0,.7); text-align: left; }}
+details.info > div b {{ color: {ACCENT}; font-weight: 600; display: block; margin-bottom: 3px;
+    font-family: {MONO}; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }}
+.tv {{ border: 1px solid {BORDER}; }}
 code {{ color: {ACCENT} !important; background: {PANEL_2} !important; border-radius: 1px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -205,11 +221,27 @@ def change_html(ind, change):
         f"<span class='chg {tone(ind, change)}'>{arrow}{fmt(abs(change), ind, True).lstrip('+')}</span>"
 
 
-def conf_html(n):
+def conf_html(n, with_info=False):
     """Confidence meter: five blocks, filled = signals agreeing."""
     if n is None:
         return ""
-    return f"<span class='conf'>CONF {'■' * n}<i>{'■' * (5 - n)}</i></span>"
+    return (f"<span class='conf'>CONF {'■' * n}<i>{'■' * (5 - n)}</i></span>"
+            + (info("confidence", "Confidence") if with_info else ""))
+
+
+def info(key, title=None):
+    """A small (i) icon. Click it to see a plain-English explanation of `key`."""
+    text = lookup(key)
+    if not text:
+        return ""
+    label = escape(title or str(key))
+    return (f"<details class='info'><summary title='What is this?'>i</summary>"
+            f"<div><b>{label}</b>{escape(text)}</div></details>")
+
+
+def tip(key):
+    """The same explanation as plain text, for Streamlit widgets' help= tooltips."""
+    return lookup(key) or None
 
 
 ARROWS = {1: "▲", -1: "▼", 0: "►"}
@@ -221,14 +253,15 @@ def link(ticker, page=None):
     return f"?p={page}&t={ticker}"
 
 
-def section(title, subtitle="", code=""):
-    st.markdown(f"<div class='sec'>{f'<b>{code}</b>' if code else ''}<h3>{escape(title)}</h3>"
+def section(title, subtitle="", code="", about=None):
+    st.markdown(f"<div class='sec'>{f'<b>{code}</b>' if code else ''}<h3>{escape(title)}"
+                f"{info(about, title) if about else ''}</h3>"
                 f"<span>{escape(subtitle)}</span></div>", unsafe_allow_html=True)
 
 
-def panel_title(title, meta=""):
-    st.markdown(f"<div class='pt'><b>{escape(title)}</b><span>{escape(meta)}</span></div>",
-                unsafe_allow_html=True)
+def panel_title(title, meta="", about=None):
+    st.markdown(f"<div class='pt'><b>{escape(title)}{info(about, title) if about else ''}</b>"
+                f"<span>{escape(meta)}</span></div>", unsafe_allow_html=True)
 
 
 def window(series, years):
@@ -312,7 +345,8 @@ def kpi_card(ind, res):
     with st.container(key=f"card_{ind['id']}"):
         top = (f"<div class='k-top'><span class='k-tk'>{ind['ticker']}</span>"
                f"{'' if res['error'] else change_html(ind, None if res['previous'] is None else res['latest'] - res['previous'])}</div>"
-               f"<div class='k-name' title='{escape(ind['name'])}'>{escape(ind['name'])}</div>")
+               f"<div class='k-name' title='{escape(ind['name'])}'>{escape(ind['name'])}"
+               f"{info(ind['id'], ind['name'])}</div>")
         if res["error"]:
             st.markdown(top + f"<div class='k-val'>N/A</div><div class='err'>{escape(res['error'])}</div>",
                         unsafe_allow_html=True)
@@ -497,18 +531,20 @@ def scorecard(rows):
             continue
         body.append(
             f"<tr><td><a href='{link(ind['ticker'])}' target='_self'><span class='k-tk'>"
-            f"{ind['ticker']}</span>&nbsp; {escape(ind['name'])}</a></td>"
+            f"{ind['ticker']}</span>&nbsp; {escape(ind['name'])}</a>{info(ind['id'], ind['name'])}</td>"
             f"<td class='n'>{fmt(res['latest'], ind)}</td>"
             f"<td class='n'>{change_html(ind, c3)}</td><td class='n'>{change_html(ind, c12)}</td>"
             f"<td>{percentile_bar(pct, ind)}</td>"
             f"<td class='n'>{'-' if pct is None else f'{pct:.0f}'}</td></tr>")
     st.markdown("<table class='t'><tr><th>Indicator</th><th style='text-align:right'>Last</th>"
-                "<th style='text-align:right'>3M</th><th style='text-align:right'>12M</th>"
-                "<th>20Y range</th><th style='text-align:right'>Pctl</th></tr>"
+                f"<th style='text-align:right'>3M{info('change', '3M / 12M change')}</th>"
+                "<th style='text-align:right'>12M</th>"
+                f"<th>20Y range{info('percentile', '20-year range')}</th>"
+                f"<th style='text-align:right'>Pctl{info('percentile', 'Percentile')}</th></tr>"
                 + "".join(body) + "</table>", unsafe_allow_html=True)
 
 
-def heat_table(df, label_col, value_cols, scale=3.0, digits=2, suffix="%", links=None):
+def heat_table(df, label_col, value_cols, scale=3.0, digits=2, suffix="%", links=None, about=None):
     """A table where each value cell is shaded green/red by size (e.g. % changes)."""
     head = "".join(f"<th style='text-align:right'>{escape(c)}</th>" for c in value_cols)
     rows = []
@@ -520,7 +556,8 @@ def heat_table(df, label_col, value_cols, scale=3.0, digits=2, suffix="%", links
             f"<td class='n heat' style='background:{heat_colour(r[c], scale)}'>"
             f"{'-' if pd.isna(r[c]) else f'{r[c]:+.{digits}f}{suffix}'}</td>" for c in value_cols)
         rows.append(f"<tr><td>{name}</td>{cells}</tr>")
-    st.markdown(f"<table class='t'><tr><th>{escape(label_col)}</th>{head}</tr>{''.join(rows)}</table>",
+    st.markdown(f"<table class='t'><tr><th>{escape(label_col)}{info(about, label_col) if about else ''}</th>"
+                f"{head}</tr>{''.join(rows)}</table>",
                 unsafe_allow_html=True)
 
 
@@ -547,3 +584,44 @@ def headlines(df, limit=25, empty="No headlines match."):
                     f"<a href='{escape(str(r['link']))}' target='_blank'>{escape(str(r['headline']))}</a>"
                     f"{tags}</span></div>")
     st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------- TradingView widgets
+# TradingView allows its widgets to be embedded on websites for free, as long as
+# the small "TradingView" link underneath stays. These show live, licensed prices.
+
+def _tv_html(script, config, height):
+    import json
+    return (f"<div class='tradingview-widget-container' style='height:{height}px'>"
+            f"<div class='tradingview-widget-container__widget' style='height:{height - 32}px'></div>"
+            f"<div class='tradingview-widget-copyright' style='font:11px {SANS};color:{DIM}'>"
+            f"<a href='https://www.tradingview.com/' rel='noopener nofollow' target='_blank' "
+            f"style='color:{MUTED}'>Live data by TradingView</a></div>"
+            f"<script type='text/javascript' src='https://s3.tradingview.com/external-embedding/{script}' "
+            f"async>{json.dumps(config)}</script></div>")
+
+
+def tv_market_overview(tabs, height=560):
+    import streamlit.components.v1 as components
+    config = {
+        "colorTheme": "dark", "dateRange": "12M", "showChart": True, "locale": "en",
+        "isTransparent": True, "showSymbolLogo": False, "showFloatingTooltip": True,
+        "width": "100%", "height": height - 32,
+        "plotLineColorGrowing": ACCENT, "plotLineColorFalling": ACCENT,
+        "gridLineColor": "rgba(42,46,57,0)", "scaleFontColor": MUTED,
+        "belowLineFillColorGrowing": "rgba(232,33,43,0.12)", "belowLineFillColorFalling": "rgba(232,33,43,0.12)",
+        "belowLineFillColorGrowingBottom": "rgba(232,33,43,0)", "belowLineFillColorFallingBottom": "rgba(232,33,43,0)",
+        "symbolActiveColor": "rgba(232,33,43,0.15)",
+        "tabs": [{"title": name, "symbols": [{"s": s, "d": d} for s, d in items]}
+                 for name, items in tabs.items()],
+    }
+    components.html(_tv_html("embed-widget-market-overview.js", config, height), height=height)
+
+
+def tv_advanced_chart(symbol, height=560):
+    import streamlit.components.v1 as components
+    config = {"autosize": True, "symbol": symbol, "interval": "D", "timezone": "Europe/London",
+              "theme": "dark", "style": "1", "locale": "en", "allow_symbol_change": True,
+              "hide_side_toolbar": False, "calendar": False, "backgroundColor": "rgba(0,0,0,1)",
+              "gridColor": "rgba(26,32,40,1)", "withdateranges": True, "details": True}
+    components.html(_tv_html("embed-widget-advanced-chart.js", config, height), height=height)

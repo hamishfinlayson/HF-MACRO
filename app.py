@@ -17,19 +17,22 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import ui
-from forecast import (ar_forecast, change_over, forecast_direction, lead_lag, percentile_rank,
+from forecast import (ar_forecast, change_over, forecast_direction, lead_lag, macro_momentum,
+                      percentile_rank,
                       periods_from_flags, recession_probability, regime_periods, risk_appetite,
                       star_rating, taylor_rule, technical_recessions)
 from indicators import (CALENDAR_RELEASES, COMMODITY_MONITOR, COUNTRIES, DEFAULT_WATCHLIST,
                         EQUITY_MONITOR, EVENTS, FX_TABLE_CURRENCIES, HEATMAP_CURRENCIES,
                         IMF_INDICATORS, INDICATORS, MAJOR_ECONOMIES, NEWS_FEEDS, NEWS_QUERIES,
                         NEWS_TOPICS, RECESSIONS, REFERENCE_LINES, RISK_COMPONENTS, SHADES, SIGNALS,
-                        YIELD_CURVES)
+                        YIELD_CURVES, RESTRICTED_IDS, TV_EQUITY_TABS, TV_COMMODITY_TABS,
+                        TV_CHART_CHOICES, COMMODITY_MONTHLY)
+from glossary import ABOUT, TERMS
 from sources import (SOURCE_NAMES, compute_derived, currency_strength, fetch_calendar, fetch_fred,
                      fetch_fx_history, fetch_fx_table, fetch_imf, fetch_imf_countries, fetch_news,
                      fetch_news_search, fetch_policy_rates, fetch_yahoo, fetch_yahoo_batch,
                      get_fred_key, load_curve, load_indicator, load_pmi, load_us_recession_flags,
-                     performance_table, source_url)
+                     monthly_performance, performance_table, public_mode, source_url)
 
 APP_NAME = "HF Macro"
 HERE = Path(__file__).parent
@@ -61,24 +64,31 @@ PERIODS = {"1Y": 1, "2Y": 2, "5Y": 5, "10Y": 10, "20Y": 20, "50Y": 50, "MAX": No
 MOUSE = {"Zoom": "zoom", "Pan": "pan", "Line": "drawline", "Draw": "drawopenpath",
          "Box": "drawrect", "Circle": "drawcircle"}
 
-st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
+LOGO = HERE / "assets" / "logo.png"
+st.set_page_config(page_title=APP_NAME, page_icon=str(LOGO) if LOGO.exists() else "📈",
+                   layout="wide", initial_sidebar_state="collapsed")
+
+# Online (public) version hides series whose owners don't allow free republishing.
+PUBLIC = public_mode()
+ACTIVE = [i for i in INDICATORS if not (PUBLIC and i["id"] in RESTRICTED_IDS)]
 ui.inject_css()
 
 # ================================================================= load all data
 
 with st.spinner("Loading market and economic data (first load takes a minute)..."):
-    LOADED = {ind["id"]: (ind, load_indicator(ind)) for ind in INDICATORS}
-    for ind in INDICATORS:                                 # calculated indicators go second
+    LOADED = {ind["id"]: (ind, load_indicator(ind)) for ind in ACTIVE}
+    for ind in ACTIVE:                                 # calculated indicators go second
         if ind["source"] == "derived":
             LOADED[ind["id"]] = (ind, compute_derived(ind, LOADED))
-    BY_TICKER = {ind["ticker"]: ind["id"] for ind in INDICATORS}
+    BY_TICKER = {ind["ticker"]: ind["id"] for ind in ACTIVE}
 
     us_flags = load_us_recession_flags()
     REC = {"US": periods_from_flags(us_flags) if us_flags is not None else []}
     uk_gdp = LOADED[RECESSIONS["UK"]["from_id"]][1]["series"]
     REC["UK"] = technical_recessions(uk_gdp) if uk_gdp is not None else []
     SHADE_PERIODS = {name: (regime_periods(rule, LOADED, REC), colour)
-                     for name, (rule, colour) in SHADES.items()}
+                     for name, (rule, colour) in SHADES.items()
+                     if rule[0] == "recession" or rule[1] in LOADED}
 
     FORECASTS = {}
     for ind_id, (ind, res) in LOADED.items():
@@ -102,13 +112,13 @@ for _ind, _res in LOADED.values():
 
 
 def ids_for(region, group=None):
-    return [i["id"] for i in INDICATORS
+    return [i["id"] for i in ACTIVE
             if i["region"] == region and (group is None or i["group"] == group)]
 
 
 def groups_for(region):
     seen = []
-    for i in INDICATORS:
+    for i in ACTIVE:
         if i["region"] == region and i["group"] not in seen:
             seen.append(i["group"])
     return seen
@@ -138,7 +148,7 @@ TICKER = qp.get("t") if qp.get("t") in BY_TICKER else None
 
 COMMANDS = {f"{code:<6} {label.upper()} — page": ("page", code) for code, (label, _) in PAGES.items()}
 COMMANDS.update({f"{ind['ticker']:<9} {ind['name']} [{ind['region']}]": ("ticker", ind["ticker"])
-                 for ind in INDICATORS})
+                 for ind in ACTIVE})
 
 
 def go_to(page=None, ticker=None):
@@ -202,9 +212,11 @@ def chart_panel(ind_id, height=220):
             return
         change = None if res["previous"] is None else res["latest"] - res["previous"]
         left.markdown(
-            f"<div class='pt'><b>{ui.escape(ind['name'])}</b><span>{ind['ticker']}</span></div>"
+            f"<div class='pt'><b>{ui.escape(ind['name'])}{ui.info(ind_id, ind['name'])}</b>"
+            f"<span>{ind['ticker']}</span></div>"
             f"<span class='hv'>{ui.fmt(res['latest'], ind)}</span> {ui.change_html(ind, change)} "
-            f"<span class='hs'>{ui.date_label(ind, res['latest_date'])}</span> &nbsp;{conf}",
+            f"<span class='hs'>{ui.date_label(ind, res['latest_date'])}</span> &nbsp;{conf}"
+            f"{ui.info('confidence', 'Confidence') if conf else ''}",
             unsafe_allow_html=True)
         right.button("OPEN ↗", key=f"open_{ind_id}", on_click=go_to,
                      kwargs=dict(ticker=ind["ticker"]), width="stretch")
@@ -256,6 +268,17 @@ def recession_gauge(key="gauge_rec"):
     gauge(float(probs.iloc[-1]), key, [([0, 30], "#0E2016"), ([30, 50], "#262010"), ([50, 100], "#2A1012")])
     st.caption(f"P(US recession by {probs.index[-1]:%b %Y}) · NY Fed yield-curve model · "
                f"10y-3m = {res['latest']:+.2f}%")
+
+
+def momentum_gauge(key="gauge_mom"):
+    items = [LOADED[i] for i in LOADED if LOADED[i][0]["region"] in ("US", "UK", "EA")]
+    score, better, counted = macro_momentum(items)
+    if score is None:
+        st.caption("Not enough data yet.")
+        return
+    gauge(score, key, [([0, 40], "#2A1012"), ([40, 60], "#16191E"), ([60, 100], "#0E2016")], suffix="")
+    st.caption(f"{better} of {counted} indicators improved over 3 months · above 50 = more improving "
+               "than worsening")
 
 
 def risk_meter(key="gauge_risk", table=False):
@@ -392,13 +415,17 @@ def page_home():
     watch = st.session_state.setdefault("watchlist", load_watchlist())
     c1, c2, c3, c4 = st.columns([1, 1, 1.1, 1.5], gap="small")
     with c1, st.container(border=True):
-        ui.panel_title("US recession probability", "12M AHEAD")
+        ui.panel_title("US recession probability", "12M AHEAD", about="recession probability")
         recession_gauge()
     with c2, st.container(border=True):
-        ui.panel_title("Risk appetite", "RISK-OFF ◄ ► RISK-ON")
-        risk_meter()
+        if PUBLIC:
+            ui.panel_title("Macro momentum", "US · UK · EA · 3M", about="macro momentum")
+            momentum_gauge()
+        else:
+            ui.panel_title("Risk appetite", "RISK-OFF ◄ ► RISK-ON", about="risk appetite")
+            risk_meter()
     with c3, st.container(border=True):
-        ui.panel_title("Economic calendar", "US · NEXT RELEASES")
+        ui.panel_title("Economic calendar", "US · NEXT RELEASES", about="NFP")
         cal, err = load_calendar()
         if err:
             st.caption(err)
@@ -409,11 +436,12 @@ def page_home():
         news, _ = load_news()
         ui.headlines(news, limit=8)
 
-    ui.section("Watchlist", "pin or unpin any indicator from its full-screen view", code="01")
+    ui.section("Watchlist", "pin or unpin any indicator from its full-screen view", code="01",
+               about="watchlist")
     ui.card_grid(watch, columns=6)
 
     ui.section("Macro scorecard", "latest, recent change and position in its 20-year range",
-               code="02")
+               code="02", about="scorecard")
     cols = st.columns(3, gap="small")
     for col, region in zip(cols, ("US", "UK", "EA")):
         with col, st.container(border=True):
@@ -453,11 +481,11 @@ def page_detail(ticker):
     change = None if res["previous"] is None else res["latest"] - res["previous"]
     conf = ui.conf_html(f["stars"]) if f and not f.get("error") else ""
     b2.markdown(
-        f"<div class='pt'><b style='font-size:.95rem'>{ui.escape(ind['name'])}</b>"
+        f"<div class='pt'><b style='font-size:.95rem'>{ui.escape(ind['name'])}{ui.info(ind_id, ind['name'])}</b>"
         f"<span>{ticker} · {ind['region'].upper()} · {ind['group'].upper()}</span></div>"
         f"<span class='hv' style='font-size:1.6rem'>{ui.fmt(res['latest'], ind)}</span> "
         f"{ui.change_html(ind, change)} <span class='hs'>{ui.date_label(ind, res['latest_date'])}</span>"
-        f" &nbsp;{conf}", unsafe_allow_html=True)
+        f" &nbsp;{conf}{ui.info('confidence', 'Confidence') if conf else ''}", unsafe_allow_html=True)
 
     s_full = res["series"]
     first, last = s_full.index[0].to_pydatetime(), s_full.index[-1].to_pydatetime()
@@ -474,34 +502,44 @@ def page_detail(ticker):
 
     with st.container(border=True):
         r1 = st.columns([2.3, 1, 1.6, 2.4], gap="small")
-        r1[0].segmented_control("Period", list(PERIODS), key=f"d_period_{k}", on_change=set_period)
+        r1[0].segmented_control("Period", list(PERIODS), key=f"d_period_{k}", on_change=set_period,
+                                help="How far back the chart goes. MAX = all available history.")
         default_kind = "Bar" if ind["chart"] == "bar" else "Line"
         kind = r1[1].selectbox("Chart", ["Line", "Area", "Bar"],
                                index=["Line", "Area", "Bar"].index(default_kind), key=f"d_kind_{k}")
         view = r1[2].selectbox("View", ["As shown", "Change vs previous", "% change y/y",
-                                        "3-month average", "12-month average"], key=f"d_view_{k}")
+                                        "3-month average", "12-month average"], key=f"d_view_{k}",
+                            help=ui.tip("views"))
         mouse = r1[3].segmented_control("Mouse", list(MOUSE), default="Zoom", key=f"d_mouse_{k}",
                                         help="Zoom/Pan to navigate. Line, Draw, Box and Circle draw "
                                              "on the chart; erase with the eraser icon (top right).")
         r2 = st.columns([2.2, 2.2, 1.4], gap="small")
-        others = {f"{i['ticker']} · {i['name']}": i["id"] for i in INDICATORS if i["id"] != ind_id}
+        others = {f"{i['ticker']} · {i['name']}": i["id"] for i in ACTIVE if i["id"] != ind_id}
         compare = r2[0].multiselect("Compare (up to 3)", list(others), max_selections=3,
-                                    key=f"d_cmp_{k}", placeholder="Overlay other indicators")
+                                    key=f"d_cmp_{k}", placeholder="Overlay other indicators",
+                                    help="Draws up to 3 other indicators on the same chart, on a second "
+                                         "axis (or the same axis if Rebase 100 is on).")
         default_shades = ["UK recessions"] if ind["region"] == "UK" else \
             ["US recessions"] if ind["region"] in ("US", "Markets") else []
-        shade_names = r2[1].multiselect("Shade periods", list(SHADES), default=default_shades,
+        shade_names = r2[1].multiselect("Shade periods", list(SHADE_PERIODS), default=default_shades,
+                                        help=ui.tip("shading"),
                                         key=f"d_shade_{k}", placeholder="Recessions, hiking cycles...")
-        levels_text = r2[2].text_input("Level lines", key=f"d_levels_{k}", placeholder="e.g. 2, 4.5")
+        levels_text = r2[2].text_input("Level lines", key=f"d_levels_{k}", placeholder="e.g. 2, 4.5",
+                                       help=ui.tip("level lines"))
         r3 = st.columns(7, gap="small")
         has_fc = bool(f and not f.get("error"))
-        show_fc = r3[0].toggle("Forecast", value=has_fc, disabled=not has_fc, key=f"d_fc_{k}")
+        show_fc = r3[0].toggle("Forecast", value=has_fc, disabled=not has_fc, key=f"d_fc_{k}",
+                               help=ui.tip("forecast"))
         targets = r3[1].toggle("Targets", value=ind_id in REFERENCE_LINES,
-                               disabled=ind_id not in REFERENCE_LINES, key=f"d_tg_{k}")
-        news_on = r3[2].toggle("News", value=ind["region"] in ("FX", "Markets"), key=f"d_news_{k}")
-        events = r3[3].toggle("Events", value=False, key=f"d_ev_{k}")
-        rebase = r3[4].toggle("Rebase 100", value=False, key=f"d_rb_{k}")
-        log = r3[5].toggle("Log", value=False, key=f"d_log_{k}")
-        slider = r3[6].toggle("Slider", value=False, key=f"d_sl_{k}")
+                               disabled=ind_id not in REFERENCE_LINES, key=f"d_tg_{k}",
+                               help=ui.tip("inflation target"))
+        news_on = r3[2].toggle("News", value=ind["region"] in ("FX", "Markets"), key=f"d_news_{k}",
+                               help=ui.tip("news markers"))
+        events = r3[3].toggle("Events", value=False, key=f"d_ev_{k}", help=ui.tip("events"))
+        rebase = r3[4].toggle("Rebase 100", value=False, key=f"d_rb_{k}", help=ui.tip("rebase"))
+        log = r3[5].toggle("Log", value=False, key=f"d_log_{k}", help=ui.tip("log scale"))
+        slider = r3[6].toggle("Slider", value=False, key=f"d_sl_{k}",
+                              help="Adds a mini overview strip under the chart that you can drag.")
 
     start, end = st.session_state[range_key]
     base = ui.transform_view(s_full, view)
@@ -555,11 +593,11 @@ def page_detail(ticker):
     stats[3].metric("5Y avg", ui.fmt(ui.window(s_full, 5).mean(), ind))
     stats[4].metric("10Y high", ui.fmt(last10.max(), ind))
     stats[5].metric("10Y low", ui.fmt(last10.min(), ind))
-    stats[6].metric("20Y pctl", "-" if pct is None else f"{pct:.0f}")
+    stats[6].metric("20Y pctl", "-" if pct is None else f"{pct:.0f}", help=ui.tip("percentile"))
 
     col_a, col_b, col_c = st.columns([1.3, 0.9, 1.3], gap="small")
     with col_a, st.container(border=True):
-        ui.panel_title("Description & forecast")
+        ui.panel_title("Description & forecast", about=ind_id)
         url, src = source_url(ind), SOURCE_NAMES.get(ind["source"], ind["source"])
         st.markdown(
             (f"**Source:** [{src}]({url})" if url else f"**Source:** {src}")
@@ -575,7 +613,7 @@ def page_detail(ticker):
                 f"**Forecast {f['fc'].index[-1]:%b %Y}:** {ui.fmt(endrow['median'], ind)} "
                 f"(80% range {ui.fmt(endrow['low'], ind)} to {ui.fmt(endrow['high'], ind)})  \n"
                 f"**Confidence:** {ui.conf_html(f['stars'])} &nbsp; {f['agree']} of "
-                f"{len(SIGNALS.get(ind_id, []))} related indicators point {ui.WORDS[f['dir']]}.",
+                f"{f['counted']} related indicators with data point {ui.WORDS[f['dir']]}.",
                 unsafe_allow_html=True)
             st.dataframe(f["table"], hide_index=True, width="stretch")
             st.caption("Autoregressive model, last 25 years, pandemic months excluded, 2,000 "
@@ -609,7 +647,7 @@ def biggest_moves(ind, series, news):
         return
     moves = recent.diff() if ind["unit"] == "%" or not daily else recent.pct_change() * 100
     top = moves.dropna().abs().sort_values(ascending=False).head(5).index
-    st.markdown("<div class='pt' style='margin-top:10px'><b>Biggest moves</b>"
+    st.markdown(f"<div class='pt' style='margin-top:10px'><b>Biggest moves{ui.info('biggest moves', 'Biggest moves')}</b>"
                 f"<span>{'90 DAYS' if daily else '2 YEARS'}</span></div>", unsafe_allow_html=True)
     rows = []
     for when in sorted(top, reverse=True):
@@ -629,11 +667,76 @@ def biggest_moves(ind, series, news):
     st.markdown("".join(rows), unsafe_allow_html=True)
 
 
+def tv_chart_picker(key, default=0):
+    labels = [f"{name} · {sym}" for sym, name in TV_CHART_CHOICES]
+    choice = st.selectbox("Chart", labels, index=default, key=key,
+                          help="A full TradingView chart: drag, zoom, change timeframe, add indicators "
+                               "and drawings with the left toolbar. You can also type any symbol in it.")
+    ui.tv_advanced_chart(TV_CHART_CHOICES[labels.index(choice)][0], height=560)
+
+
+def page_wei():
+    st.markdown("World Equity Monitor · live prices " + ui.info("TradingView", "TradingView"),
+                unsafe_allow_html=True)
+    left, right = st.columns([1, 1.5], gap="small")
+    with left, st.container(border=True):
+        ui.panel_title("Markets overview", "LIVE · TRADINGVIEW")
+        ui.tv_market_overview(TV_EQUITY_TABS, height=600)
+    with right, st.container(border=True):
+        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        tv_chart_picker("wei_chart", 0)
+    if not PUBLIC:
+        ui.section("Performance table", "Yahoo Finance · your PC only", code="02")
+        performance_view(EQUITY_MONITOR, "wei")
+
+
+def page_cmdty():
+    left, right = st.columns([1, 1.5], gap="small")
+    with left, st.container(border=True):
+        ui.panel_title("Commodities overview", "LIVE · TRADINGVIEW", about="futures")
+        ui.tv_market_overview(TV_COMMODITY_TABS, height=600)
+    with right, st.container(border=True):
+        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        tv_chart_picker("cmdty_chart", 8)
+    ui.section("Monthly commodity prices", "IMF primary commodity prices via FRED", code="02",
+               about="IMF")
+    key = get_fred_key()
+    if not key:
+        st.caption("Needs your FRED key.")
+    else:
+        for n, (group, items) in enumerate(COMMODITY_MONTHLY.items(), start=1):
+            series = {}
+            for code, name, unit in items:
+                try:
+                    series[(name, unit)] = fetch_fred(code, key)
+                except Exception:
+                    pass
+            table = monthly_performance(series)
+            if table.empty:
+                continue
+            st.markdown(f"<div class='pt'><b>{group}</b><span>MONTHLY AVERAGE PRICES</span></div>",
+                        unsafe_allow_html=True)
+            pct = ["1M %", "3M %", "1Y %", "5Y %"]
+            st.dataframe(
+                table[["Commodity", "Unit", "Last", *pct, "Trend (5Y)", "Month"]].style
+                .format({"Last": "{:,.2f}", **{c: "{:+.1f}%" for c in pct}}, na_rep="-")
+                .map(lambda v: "" if v is None or pd.isna(v) else
+                     f"color: {ui.UP if v > 0 else ui.DOWN}; background-color: {ui.heat_colour(v, 15)}",
+                     subset=pct),
+                column_config={"Trend (5Y)": st.column_config.LineChartColumn("Trend (5Y)", width="medium")},
+                hide_index=True, width="stretch")
+        st.caption("Source: IMF Primary Commodity Prices (monthly averages), via FRED.")
+    if not PUBLIC:
+        ui.section("Futures performance", "Yahoo Finance · your PC only", code="03")
+        performance_view(COMMODITY_MONITOR, "cmdty")
+
+
 def page_global():
     this_year = datetime.now().year
     years = list(range(this_year - 8, this_year + 4))
     c1, c2 = st.columns([1.3, 2])
-    code = c1.selectbox("Measure", list(IMF_INDICATORS), format_func=lambda c: IMF_INDICATORS[c][0])
+    code = c1.selectbox("Measure", list(IMF_INDICATORS), format_func=lambda c: IMF_INDICATORS[c][0],
+                        help="IMF World Economic Outlook data. " + (ui.tip("current account") or ""))
     year = c2.select_slider("Year", options=years, value=this_year)
     try:
         df = fetch_imf(code, tuple(years))
@@ -661,7 +764,7 @@ def page_global():
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="world_map")
         st.caption(f"{label}, {year}. Years after the latest actual data are IMF projections "
                    "(World Economic Outlook).")
-        ui.section("Major economies", f"{label} · IMF", code="01")
+        ui.section("Major economies", f"{label} · IMF", code="01", about="WEO")
         cols = [y for y in (this_year - 1, this_year, this_year + 1) if y in df.columns]
         table = df.reindex(MAJOR_ECONOMIES)[cols].copy()
         table.index = [names.get(c, c) for c in table.index]
@@ -677,7 +780,7 @@ def page_global():
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="major_bars")
 
     ui.section("Central bank rates board", "policy rates from the Bank for International Settlements",
-               code="02")
+               code="02", about="policy rate")
     try:
         rates = fetch_policy_rates(tuple(sorted({c["bis"] for c in COUNTRIES.values()})))
         area_names = {}
@@ -747,37 +850,40 @@ def page_country():
         except Exception:
             pass
     equity = pd.Series(dtype=float)
-    if c["equity"]:
+    if c["equity"] and not PUBLIC:
         try:
             equity = fetch_yahoo(c["equity"])
         except Exception:
             pass
 
-    ui.section(c["name"], f"{iso} · currency {c['ccy']}", code="CTRY")
+    ui.section(c["name"], f"{iso} · currency {c['ccy']}", code="CTRY", about="WEO")
     tiles = st.columns(6, gap="small")
 
-    def tile(col, label, value, sub):
+    def tile(col, label, value, sub, about=None):
         with col, st.container(border=True):
-            st.markdown(f"<div class='k-name'>{label}</div><div class='k-val'>{value}</div>"
+            st.markdown(f"<div class='k-name'>{label}{ui.info(about, label) if about else ''}</div>"
+                        f"<div class='k-val'>{value}</div>"
                         f"<div class='k-foot'><span>{sub}</span></div>", unsafe_allow_html=True)
 
     def imf_val(code, yr):
         s = imf.get(code, pd.Series(dtype=float))
         return f"{s[yr]:.1f}%" if yr in s.index else "-"
-    tile(tiles[0], "GDP growth", imf_val("NGDP_RPCH", this_year), f"IMF {this_year}")
-    tile(tiles[1], "Inflation", imf_val("PCPIPCH", this_year), f"IMF {this_year}")
-    tile(tiles[2], "Unemployment", imf_val("LUR", this_year), f"IMF {this_year}")
-    tile(tiles[3], "Govt debt / GDP", imf_val("GGXWDG_NGDP", this_year), f"IMF {this_year}")
+    tile(tiles[0], "GDP growth", imf_val("NGDP_RPCH", this_year), f"IMF {this_year}", "GDP")
+    tile(tiles[1], "Inflation", imf_val("PCPIPCH", this_year), f"IMF {this_year}", "CPI")
+    tile(tiles[2], "Unemployment", imf_val("LUR", this_year), f"IMF {this_year}", "unemployment rate")
+    tile(tiles[3], "Govt debt / GDP", imf_val("GGXWDG_NGDP", this_year), f"IMF {this_year}",
+         "government debt")
     tile(tiles[4], "Policy rate", f"{policy.iloc[-1]:.2f}%" if len(policy) else "-",
-         f"BIS {policy.index[-1]:%b %Y}".upper() if len(policy) else "BIS")
+         f"BIS {policy.index[-1]:%b %Y}".upper() if len(policy) else "BIS", "policy rate")
     tile(tiles[5], f"{c['ccy']} per USD", f"{fx.dropna().iloc[-1]:,.4f}" if len(fx.dropna()) else "-",
-         f"FRED {fx.dropna().index[-1]:%d %b %y}".upper() if len(fx.dropna()) else "USD base")
+         f"FRED {fx.dropna().index[-1]:%d %b %y}".upper() if len(fx.dropna()) else "USD base",
+         "currency pair")
 
     left, right = st.columns(2, gap="small")
     for col, code in ((left, "NGDP_RPCH"), (right, "PCPIPCH")):
         with col, st.container(border=True):
             s = imf.get(code, pd.Series(dtype=float))
-            ui.panel_title(IMF_INDICATORS[code][0], "IMF · ACTUAL + PROJECTION")
+            ui.panel_title(IMF_INDICATORS[code][0], "IMF · ACTUAL + PROJECTION", about="WEO")
             if s.empty:
                 st.caption("No IMF data.")
                 continue
@@ -797,7 +903,8 @@ def page_country():
             ui.panel_title(title, "20Y")
             s = s.dropna()
             if s.empty:
-                st.caption("Not available for this country.")
+                st.caption("See the World Equities page for live index charts."
+                           if PUBLIC and kk == "eq" else "Not available for this country.")
                 continue
             s = s[s.index >= s.index[-1] - pd.DateOffset(years=20)]
             fig = go.Figure()
@@ -867,22 +974,22 @@ def page_news():
 def page_fx():
     left, right = st.columns([1, 1.6], gap="small")
     with left, st.container(border=True):
-        ui.panel_title("GBP snapshot", "1 GBP BUYS")
+        ui.panel_title("GBP snapshot", "1 GBP BUYS", about="ECB reference rates")
         fx_snapshot()
     with right, st.container(border=True):
-        ui.panel_title("Currency strength heatmap", "% CHANGE")
+        ui.panel_title("Currency strength heatmap", "% CHANGE", about="currency strength")
         strength_heatmap()
     region_page("FX", "Sterling, the majors, commodity currencies and emerging markets. "
                       "Full-screen views show related news and the biggest recent moves.")
 
 
 def page_curves():
-    st.caption("Yield at each maturity today vs one year ago. Upward slope = normal; short rates "
-               "above long rates (inverted) has often come before recessions.")
+    st.markdown("Yield at each maturity today vs one year ago " + ui.info("yield curve", "Yield curve")
+                + ui.info("inversion", "Inversion"), unsafe_allow_html=True)
     cols = st.columns(len(YIELD_CURVES), gap="small")
     for col, (name, curve) in zip(cols, YIELD_CURVES.items()):
         with col, st.container(border=True):
-            ui.panel_title(name)
+            ui.panel_title(name, about="zero coupon" if "zero" in name else "yield curve")
             table, today, year_ago, error = load_curve(curve)
             if error:
                 st.caption(error)
@@ -897,7 +1004,8 @@ def page_curves():
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"curve_{name}")
             st.dataframe(table.style.format({"Latest": "{:.2f}%", "1 year ago": "{:.2f}%"}, na_rep="-"),
                          hide_index=True, width="stretch")
-    ui.section("Yield-curve recession signal", "NY Fed model · P(US recession in 12 months)", code="02")
+    ui.section("Yield-curve recession signal", "NY Fed model · P(US recession in 12 months)", code="02",
+               about="recession probability")
     ind, res = LOADED["us_3m10y"]
     if res["series"] is None:
         st.caption("Needs the 3m10y spread from FRED.")
@@ -915,14 +1023,17 @@ def page_curves():
 def page_calendar():
     left, right = st.columns([1.4, 1], gap="small")
     with left, st.container(border=True):
-        ui.panel_title("US key releases", "NEXT 45 DAYS · FRED")
+        ui.panel_title("US key releases", "NEXT 45 DAYS · FRED", about="NFP")
+        st.markdown("Key terms: " + ui.info("NFP", "NFP") + " payrolls · " + ui.info("CPI", "CPI")
+                    + " inflation · " + ui.info("GDP", "GDP") + " growth · " + ui.info("FOMC", "FOMC")
+                    + " Fed decisions", unsafe_allow_html=True)
         cal, err = load_calendar()
         if err:
             st.caption(err)
         else:
             calendar_rows(cal)
     with right, st.container(border=True):
-        ui.panel_title("UK and Europe calendars")
+        ui.panel_title("UK and Europe calendars", about="MPC")
         st.markdown(
             "- [ONS release calendar](https://www.ons.gov.uk/releasecalendar): GDP, CPI, labour "
             "market, retail sales, trade\n"
@@ -933,8 +1044,9 @@ def page_calendar():
 
 
 def page_lab():
-    tab1, tab2, tab3 = st.tabs(["Correlation & lead/lag", "Taylor rule", "Risk appetite"])
-    options = {f"{i['ticker']} · {i['name']}": i["id"] for i in INDICATORS
+    tab1, tab2, tab3 = st.tabs(["Correlation & lead/lag", "Taylor rule",
+                                "Macro momentum" if PUBLIC else "Risk appetite"])
+    options = {f"{i['ticker']} · {i['name']}": i["id"] for i in ACTIVE
                if LOADED[i["id"]][1]["series"] is not None}
     with tab1:
         st.caption("Does one indicator move before another? Pick two to see how closely they "
@@ -954,7 +1066,7 @@ def page_lab():
                 best = int(lags.abs().idxmax())
                 left, right = st.columns(2, gap="small")
                 with left, st.container(border=True):
-                    ui.panel_title("Scatter", "EACH DOT = 1 MONTH")
+                    ui.panel_title("Scatter", "EACH DOT = 1 MONTH", about="correlation")
                     joined = pd.concat([x_res["series"].resample("MS").mean(),
                                         y_res["series"].resample("MS").mean()], axis=1, sort=True).dropna()
                     joined = joined[joined.index >= joined.index[-1] - pd.DateOffset(years=yrs)]
@@ -969,7 +1081,7 @@ def page_lab():
                                       yaxis=dict(title=y_ind["ticker"]))
                     st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="lab_scatter")
                 with right, st.container(border=True):
-                    ui.panel_title("Lead / lag", "CORRELATION BY SHIFT")
+                    ui.panel_title("Lead / lag", "CORRELATION BY SHIFT", about="lead/lag")
                     fig = go.Figure()
                     fig.add_bar(x=lags.index, y=lags.values,
                                 marker_color=[ui.ACCENT if l == best else "#2E3742" for l in lags.index])
@@ -983,8 +1095,9 @@ def page_lab():
                             f"**Strongest:** {lags[best]:+.2f} when {lead}.")
                 st.caption("Correlation shows association, not cause and effect.")
     with tab2:
-        st.caption("The Taylor rule: a classic guide to where a central bank 'should' set rates "
-                   "given inflation and the jobs market. Adjust the assumptions.")
+        st.markdown("The Taylor rule " + ui.info("Taylor rule", "Taylor rule")
+                    + " · neutral rate " + ui.info("neutral rate", "Neutral rate (r*)"),
+                    unsafe_allow_html=True)
         c = st.columns(6)
         region = c[0].selectbox("Economy", ["UK", "US"], key="tr_region")
         r_star = c[1].slider("Neutral real rate", -1.0, 3.0, 0.5, 0.25, key="tr_r")
@@ -1015,12 +1128,17 @@ def page_lab():
             st.caption("rate = r* + inflation + a·(inflation − target) + b·(u* − unemployment). "
                        "A teaching tool, not how central banks decide.")
     with tab3:
-        st.caption("A composite of five market signals, each compared with its last 3 years.")
-        risk_meter(key="gauge_risk_lab", table=True)
+        if PUBLIC:
+            st.markdown("Macro momentum " + ui.info("macro momentum", "Macro momentum"), unsafe_allow_html=True)
+            momentum_gauge(key="gauge_mom_lab")
+        else:
+            st.markdown("Risk appetite " + ui.info("risk appetite", "Risk appetite"), unsafe_allow_html=True)
+            risk_meter(key="gauge_risk_lab", table=True)
 
 
 def page_pmi():
     pmi = load_pmi(PMI_FILE)
+    st.markdown("Purchasing Managers' Index " + ui.info("PMI", "PMI"), unsafe_allow_html=True)
     st.caption("Above 50 = expansion, below 50 = contraction. Headline S&P Global / ISM figures, "
                "added monthly, kept on your PC only.")
     if pmi.empty:
@@ -1050,13 +1168,14 @@ def page_help():
         "- **Drawing**: choose Line, Draw, Box or Circle under Mouse, then drag on the chart. "
         "Erase with the eraser icon. Save with the camera icon.\n"
         "- **Zoom**: drag across the chart, double-click to reset, or use the date slider.\n"
-        "- **Links are shareable**: the address bar changes as you move around.")
+        "- **Links are shareable**: the address bar changes as you move around.\n"
+        "- **Not sure what something means?** Click any small **i** icon, or search the glossary below.")
     st.markdown("#### Page codes")
     st.dataframe(pd.DataFrame([(c, l, d) for c, (l, d) in PAGES.items()],
                               columns=["Code", "Page", "What's there"]), hide_index=True, width="stretch")
     st.markdown("#### Tickers")
     rows = []
-    for ind in INDICATORS:
+    for ind in ACTIVE:
         res = LOADED[ind["id"]][1]
         rows.append(dict(Ticker=ind["ticker"], Name=ind["name"], Region=ind["region"], Group=ind["group"],
                          Source=SOURCE_NAMES.get(ind["source"], ind["source"]),
@@ -1065,8 +1184,22 @@ def page_help():
                          Forecast="yes" if ind["id"] in FORECASTS else ""))
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=600)
     st.markdown("#### Shading options")
-    st.dataframe(pd.DataFrame([(n, len(SHADE_PERIODS[n][0])) for n in SHADES],
+    st.dataframe(pd.DataFrame([(n, len(SHADE_PERIODS[n][0])) for n in SHADE_PERIODS],
                               columns=["Shade", "Episodes found"]), hide_index=True)
+    st.markdown("#### Glossary")
+    q = st.text_input("Search the glossary", placeholder="e.g. inflation, yield, VIX", key="gloss_q")
+    terms = pd.DataFrame(sorted(TERMS.items(), key=lambda kv: kv[0].lower()), columns=["Term", "Meaning"])
+    about = pd.DataFrame([(i["ticker"], i["name"], ABOUT.get(i["id"], "")) for i in ACTIVE],
+                         columns=["Ticker", "Indicator", "What it is"])
+    if q:
+        terms = terms[terms.apply(lambda r: q.lower() in (r["Term"] + r["Meaning"]).lower(), axis=1)]
+        about = about[about.apply(lambda r: q.lower() in " ".join(r).lower(), axis=1)]
+    st.dataframe(terms, hide_index=True, width="stretch", height=420,
+                 column_config={"Meaning": st.column_config.TextColumn(width="large")})
+    st.dataframe(about, hide_index=True, width="stretch", height=420,
+                 column_config={"What it is": st.column_config.TextColumn(width="large")})
+    if PUBLIC:
+        st.caption("Online version: " + TERMS["public mode"])
     st.markdown("#### Events marked on charts")
     st.dataframe(pd.DataFrame(EVENTS, columns=["Date", "Event"]), hide_index=True)
 
@@ -1086,11 +1219,9 @@ elif PAGE == "EA":
 elif PAGE == "MKT":
     region_page("Markets", "Key indices, volatility and commodities with full history.")
 elif PAGE == "WEI":
-    st.caption("World Equity Monitor: 23 stock indices. Green/red shading shows the size of moves.")
-    performance_view(EQUITY_MONITOR, "wei")
+    page_wei()
 elif PAGE == "CMDTY":
-    st.caption("Commodities Monitor: front-month futures prices.")
-    performance_view(COMMODITY_MONITOR, "cmdty")
+    page_cmdty()
 elif PAGE == "FX":
     page_fx()
 elif PAGE == "GLOB":
@@ -1111,7 +1242,7 @@ elif PAGE == "HELP":
     page_help()
 
 ui.status_bar(SOURCE_HEALTH, f"{sum(1 for _, r in LOADED.values() if r['error'] is None)}/"
-                             f"{len(LOADED)} SERIES · CACHE 6H")
+                             f"{len(LOADED)} SERIES · CACHE 6H" + (" · PUBLIC EDITION" if PUBLIC else ""))
 st.caption("Personal educational project. " + ui.DISCLAIMER + " Sources: FRED (Federal Reserve "
            "Bank of St. Louis; this product uses the FRED® API but is not endorsed or certified by "
            "it) · ONS (Open Government Licence v3.0) · Bank of England · ECB · BIS · IMF · ECB rates "

@@ -515,3 +515,65 @@ RISK_COMPONENTS = [("vix", -1), ("us_hy", -1), ("cu_au", +1), ("dxy", -1), ("sp5
 # Indicators pinned to the Home page the first time you open the dashboard
 DEFAULT_WATCHLIST = ["uk_cpi", "uk_bankrate", "us_cpi", "us_unemp",
                      "ftse100", "sp500", "gbpusd", "brent"]
+
+# --------------------------------------------------------------------------
+# PUBLIC MODE (the online version). Set PUBLIC_MODE = true in Streamlit's
+# secrets box and these series are hidden, because their owners don't allow
+# free republishing: Yahoo Finance data and a few company-owned FRED series
+# (S&P, Nasdaq, Cboe VIX, ICE credit spreads, University of Michigan).
+# On your own PC everything is shown.
+# --------------------------------------------------------------------------
+RESTRICTED_IDS = {
+    "ftse100", "ftse250", "dax", "nikkei", "stoxx50", "gold", "copper", "cu_au",  # Yahoo Finance
+    "sp500", "nasdaq", "vix", "us_hy", "us_sentiment",                           # third-party FRED
+}
+
+# Risk gauge inputs for public mode are replaced by the Macro momentum gauge.
+
+# --------------------------------------------------------------------------
+# TRADINGVIEW widgets (free to embed on websites, with TradingView's link kept).
+# Symbols are TradingView codes. Some exchanges' data may show as unavailable.
+# --------------------------------------------------------------------------
+TV_EQUITY_TABS = {
+    "Americas": [("FOREXCOM:SPXUSD", "S&P 500"), ("FOREXCOM:NSXUSD", "Nasdaq 100"),
+                 ("FOREXCOM:DJI", "Dow Jones"), ("TVC:RUT", "Russell 2000"),
+                 ("TSX:TSX", "S&P/TSX (Canada)"), ("BMFBOVESPA:IBOV", "Ibovespa (Brazil)")],
+    "Europe": [("FOREXCOM:UKXGBP", "FTSE 100"), ("TVC:UKX", "FTSE 100 (index)"),
+               ("INDEX:DEU40", "DAX"), ("TVC:CAC40", "CAC 40"), ("TVC:SX5E", "Euro Stoxx 50"),
+               ("TVC:IBEX35", "IBEX 35")],
+    "Asia-Pacific": [("INDEX:NKY", "Nikkei 225"), ("TVC:HSI", "Hang Seng"),
+                     ("SSE:000001", "Shanghai Composite"), ("TVC:KOSPI", "KOSPI"),
+                     ("BSE:SENSEX", "Sensex"), ("ASX:XJO", "ASX 200")],
+    "Volatility & rates": [("TVC:VIX", "VIX"), ("TVC:US10Y", "US 10Y yield"),
+                           ("TVC:GB10Y", "UK 10Y yield"), ("TVC:DE10Y", "Germany 10Y yield"),
+                           ("TVC:DXY", "Dollar index")],
+}
+TV_COMMODITY_TABS = {
+    "Energy": [("TVC:UKOIL", "Brent crude"), ("TVC:USOIL", "WTI crude"),
+               ("NYMEX:NG1!", "Natural gas"), ("NYMEX:RB1!", "Gasoline")],
+    "Metals": [("TVC:GOLD", "Gold"), ("TVC:SILVER", "Silver"), ("TVC:PLATINUM", "Platinum"),
+               ("COMEX:HG1!", "Copper")],
+    "Agriculture": [("CBOT:ZW1!", "Wheat"), ("CBOT:ZC1!", "Corn"), ("CBOT:ZS1!", "Soybeans"),
+                    ("ICEUS:KC1!", "Coffee"), ("ICEUS:SB1!", "Sugar"), ("ICEUS:CC1!", "Cocoa")],
+}
+TV_CHART_CHOICES = [("FOREXCOM:UKXGBP", "FTSE 100"), ("FOREXCOM:SPXUSD", "S&P 500"),
+                    ("FOREXCOM:NSXUSD", "Nasdaq 100"), ("INDEX:DEU40", "DAX"),
+                    ("INDEX:NKY", "Nikkei 225"), ("TVC:SX5E", "Euro Stoxx 50"),
+                    ("TVC:VIX", "VIX"), ("TVC:GOLD", "Gold"), ("TVC:UKOIL", "Brent crude"),
+                    ("COMEX:HG1!", "Copper"), ("FX:GBPUSD", "GBP/USD")]
+
+# --------------------------------------------------------------------------
+# COMMODITY PRICES (monthly) - IMF Primary Commodity Prices, via FRED.
+# (FRED code, name, unit). Free to reuse with attribution.
+# --------------------------------------------------------------------------
+COMMODITY_MONTHLY = {
+    "Energy": [("POILBREUSDM", "Brent crude", "$/barrel"), ("PNGASEUUSDM", "Natural gas (Europe)", "$/MMBtu"),
+               ("PNGASUSUSDM", "Natural gas (US)", "$/MMBtu"), ("PCOALAUUSDM", "Coal (Australia)", "$/tonne")],
+    "Metals": [("PCOPPUSDM", "Copper", "$/tonne"), ("PALUMUSDM", "Aluminium", "$/tonne"),
+               ("PNICKUSDM", "Nickel", "$/tonne"), ("PZINCUSDM", "Zinc", "$/tonne"),
+               ("PIORECRUSDM", "Iron ore", "$/tonne")],
+    "Agriculture": [("PWHEAMTUSDM", "Wheat", "$/tonne"), ("PMAIZMTUSDM", "Maize (corn)", "$/tonne"),
+                    ("PSOYBUSDM", "Soybeans", "$/tonne"), ("PCOFFOTMUSDM", "Coffee (Arabica)", "US cents/lb"),
+                    ("PCOCOUSDM", "Cocoa", "$/tonne"), ("PSUGAISAUSDM", "Sugar", "US cents/lb"),
+                    ("PCOTTINDUSDM", "Cotton", "US cents/lb"), ("PBEEFUSDM", "Beef", "US cents/lb")],
+}

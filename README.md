@@ -29,6 +29,18 @@ Hamish Finlayson's macro terminal: a terminal-style dashboard for UK and US macr
 - **Drawing**: pick Line, Draw, Box or Circle under *Mouse*, then drag on the chart. Eraser and camera icons are top right of the chart.
 - The address bar changes as you move, so you can bookmark any view.
 
+
+## Public edition (the online version)
+Set `PUBLIC_MODE = true` in Streamlit Community Cloud's **Secrets** box. The online version then hides
+series whose owners don't allow free republishing (Yahoo Finance prices and a few company-owned FRED
+series: S&P 500, Nasdaq, VIX, ICE high-yield spreads, University of Michigan sentiment). Live index and
+commodity charts come from embedded **TradingView** widgets instead, commodity history from the **IMF**,
+and the Risk appetite gauge is replaced by **Macro momentum**. On your own PC everything is shown.
+
+## Info icons and glossary
+Click any small **i** icon for a plain-English explanation of an indicator, abbreviation or concept.
+All explanations live in `glossary.py` (also searchable on the HELP page).
+
 ---
 
 ## First-time setup on Windows
@@ -74,6 +86,8 @@ Forecasts and models are for education only and are not financial advice.
 | `ui.py` | The look: terminal styling, cards, ticker tape, charts, tables, status bar |
 | `indicators.py` | Settings: indicators, tickers, signals, events, news feeds, IMF and calendar lists |
 | `sources.py` | Downloads and tidies data (FRED, ONS, BoE, ECB, BIS, IMF, Yahoo, RSS and Google News, FX) |
+| `glossary.py` | Plain-English explanations behind every (i) icon |
+| `assets/logo.png` | Browser tab logo |
 | `forecast.py` | Forecasts, confidence ratings, shading rules, recession model, risk meter, lead/lag, Taylor rule |
 | `data/pmi.csv` | PMI figures, added monthly (not uploaded to GitHub) |
 | `data/watchlist.json` | Your pinned indicators (created automatically) |
@@ -88,6 +102,6 @@ Every card, chart and page handles its own errors, so one broken source won't st
 - **News feeds unavailable**: listed under the headlines; the rest still show.
 
 ## Data sources and credits
-FRED, Federal Reserve Bank of St. Louis (this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis; some series are owned by third parties such as S&P and ICE) · Office for National Statistics, Open Government Licence v3.0 · Bank of England · European Central Bank · Bank for International Settlements · IMF DataMapper / World Economic Outlook · ECB reference rates via Frankfurter · Yahoo Finance via `yfinance` (unofficial) · headlines and links from public RSS feeds (BBC, Guardian, CNBC, Federal Reserve, Bank of England, ECB, IMF, WTO) and Google News search (personal, non-commercial use) · PMI: S&P Global and ISM headline releases, kept local.
+FRED, Federal Reserve Bank of St. Louis (this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis; some series are owned by third parties such as S&P and ICE) · Office for National Statistics, Open Government Licence v3.0 · Bank of England · European Central Bank · Bank for International Settlements · IMF DataMapper / World Economic Outlook · ECB reference rates via Frankfurter · TradingView widgets (online) · IMF Primary Commodity Prices · Yahoo Finance via `yfinance` (unofficial, PC only) · headlines and links from public RSS feeds (BBC, Guardian, CNBC, Federal Reserve, Bank of England, ECB, IMF, WTO) and Google News search (personal, non-commercial use) · PMI: S&P Global and ISM headline releases, kept local.
 
 Personal educational project. Not investment advice. Not affiliated with Bloomberg L.P.
