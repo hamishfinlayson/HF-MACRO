@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from glossary import lookup
-from indicators import EVENTS
+from indicators import EVENTS, MARKET_FORECASTS
 
 # Shared with app.py (filled in once data has loaded)
 DATA = {"loaded": {}, "forecasts": {}, "go_to": None}
@@ -626,3 +626,68 @@ def tv_advanced_chart(symbol, height=560):
               "hide_side_toolbar": False, "calendar": False, "backgroundColor": "rgba(0,0,0,1)",
               "gridColor": "rgba(26,32,40,1)", "withdateranges": True, "details": True}
     components.html(_tv_html("embed-widget-advanced-chart.js", config, height), height=height)
+
+
+# ---------------------------------------------------------------- forecast tables
+
+def signal_table(table, target_dir):
+    """
+    The five drivers behind a confidence score. Each driver links to its own chart and its
+    official source, so you can check the evidence yourself.
+    """
+    from sources import SOURCE_NAMES, source_url
+    rows = []
+    for _, r in table.iterrows():
+        sig_id = r.get("id")
+        pair = DATA["loaded"].get(sig_id)
+        if pair is None:
+            rows.append(f"<tr><td colspan='5' class='hs'>{escape(str(sig_id))}: not available in this "
+                        f"edition</td></tr>")
+            continue
+        ind, _res = pair
+        rel = "moves with it" if r.get("relationship", 1) > 0 else "moves against it"
+        verdict = {"yes": "<span class='up'>■ AGREES</span>", "no": "<span class='dn'>□ DISAGREES</span>"}.get(
+            r["Agrees"], "<span class='nc'>- NO DATA</span>")
+        url = source_url(ind)
+        src = (f"<a href='{escape(url)}' target='_blank' title='{escape(SOURCE_NAMES.get(ind['source'], ''))}'>"
+               f"source ↗</a>") if url else "<span class='hs'>calculated</span>"
+        rows.append(
+            f"<tr><td><a href='{link(ind['ticker'])}' target='_self'><span class='k-tk'>{ind['ticker']}</span>"
+            f"&nbsp;{escape(ind['name'])}</a>{info(ind['id'], ind['name'])}<br><span class='hs'>{rel}</span></td>"
+            f"<td class='n'>{escape(str(r['Moved']))}</td><td class='n'>{escape(str(r['Implies']).upper())}</td>"
+            f"<td>{verdict}</td><td class='n'>{src}</td></tr>")
+    st.markdown("<table class='t'><tr><th>Driver" + info("drivers", "Drivers") + "</th>"
+                "<th style='text-align:right'>Last 6 months</th><th style='text-align:right'>Points</th>"
+                "<th>Vs forecast (" + WORDS.get(target_dir, "flat").upper() + ")</th>"
+                "<th style='text-align:right'>Data</th></tr>" + "".join(rows) + "</table>",
+                unsafe_allow_html=True)
+
+
+def outlook_table(ids, empty="No forecasts available here."):
+    """Every forecast in `ids`: last value, 12-month projection, range, direction and confidence."""
+    rows = []
+    for ind_id in ids:
+        f = DATA["forecasts"].get(ind_id)
+        pair = DATA["loaded"].get(ind_id)
+        if not f or f.get("error") or pair is None:
+            continue
+        ind, res = pair
+        end = f["fc"].iloc[-1]
+        arrow_cls = {1: "up", -1: "dn", 0: "nc"}[f["dir"]]
+        warn = " <span class='tag'>market</span>" if ind_id in MARKET_FORECASTS else ""
+        rows.append((f["stars"], f"<tr><td><a href='{link(ind['ticker'])}' target='_self'><span class='k-tk'>"
+                     f"{ind['ticker']}</span>&nbsp;{escape(ind['name'])}</a>{info(ind_id, ind['name'])}{warn}</td>"
+                     f"<td class='n'>{fmt(res['latest'], ind)}</td>"
+                     f"<td class='n'><span class='{arrow_cls}'>{ARROWS[f['dir']]}</span> {fmt(end['median'], ind)}</td>"
+                     f"<td class='n hs'>{fmt(end['low'], ind)} to {fmt(end['high'], ind)}</td>"
+                     f"<td>{conf_html(f['stars'])}</td>"
+                     f"<td class='n hs'>{f['agree']}/{f['counted']}</td></tr>"))
+    if not rows:
+        st.caption(empty)
+        return
+    rows.sort(key=lambda r: -r[0])
+    st.markdown("<table class='t'><tr><th>Indicator</th><th style='text-align:right'>Last</th>"
+                "<th style='text-align:right'>12M forecast" + info("forecast", "Forecast") + "</th>"
+                "<th style='text-align:right'>80% range</th><th>Confidence" + info("confidence", "Confidence")
+                + "</th><th style='text-align:right'>Drivers</th></tr>" + "".join(r for _, r in rows) + "</table>",
+                unsafe_allow_html=True)

@@ -26,7 +26,7 @@ from indicators import (CALENDAR_RELEASES, COMMODITY_MONITOR, COUNTRIES, DEFAULT
                         IMF_INDICATORS, INDICATORS, MAJOR_ECONOMIES, NEWS_FEEDS, NEWS_QUERIES,
                         NEWS_TOPICS, RECESSIONS, REFERENCE_LINES, RISK_COMPONENTS, SHADES, SIGNALS,
                         YIELD_CURVES, RESTRICTED_IDS, TV_EQUITY_TABS, TV_COMMODITY_TABS,
-                        TV_CHART_CHOICES, COMMODITY_MONTHLY)
+                        TV_CHART_CHOICES, COMMODITY_MONTHLY, MARKET_FORECASTS, OIL_DASHBOARD)
 from glossary import ABOUT, TERMS
 from sources import (SOURCE_NAMES, compute_derived, currency_strength, fetch_calendar, fetch_fred,
                      fetch_fx_history, fetch_fx_table, fetch_imf, fetch_imf_countries, fetch_news,
@@ -617,7 +617,10 @@ def page_detail(ticker):
                 f"**Confidence:** {ui.conf_html(f['stars'])} &nbsp; {f['agree']} of "
                 f"{f['counted']} related indicators with data point {ui.WORDS[f['dir']]}.",
                 unsafe_allow_html=True)
-            st.dataframe(f["table"], hide_index=True, width="stretch")
+            ui.signal_table(f["table"], f["dir"])
+            if ind_id in MARKET_FORECASTS:
+                st.markdown("<div class='disc'>" + ui.escape(TERMS["market forecast"]) + "</div>",
+                            unsafe_allow_html=True)
             st.caption("Autoregressive model, last 25 years, pandemic months excluded, 2,000 "
                        "simulations. " + ui.DISCLAIMER)
     with col_b, st.container(border=True):
@@ -687,12 +690,35 @@ def page_wei():
     with right, st.container(border=True):
         ui.panel_title("Chart", "LIVE · TRADINGVIEW")
         tv_chart_picker("wei_chart", 0)
+    equity_ids = ["ftse100", "ftse250", "sp500", "nasdaq", "dax", "stoxx50", "nikkei"]
+    ui.section("Equity outlook", "12-month forecasts and what the drivers say", code="02",
+               about="market forecast")
+    with st.container(border=True):
+        ui.outlook_table(equity_ids, empty=(
+            "Index forecasts need historical index prices, which can't be republished on the public "
+            "edition. They're available when you run HF Macro on your own PC."))
     if not PUBLIC:
-        ui.section("Performance table", "Yahoo Finance · your PC only", code="02")
+        ui.section("Performance table", "Yahoo Finance · your PC only", code="03")
         performance_view(EQUITY_MONITOR, "wei")
 
 
 def page_cmdty():
+    ui.section("Oil dashboard", "prices, US supply and demand, forecasts and news", code="01",
+               about="inventories")
+    ui.card_grid([i for i in OIL_DASHBOARD if i in LOADED], columns=8)
+    left, mid, right = st.columns([1.15, 1.15, 1], gap="small")
+    with left:
+        chart_panel("brent", height=240)
+    with mid:
+        chart_panel("us_crude_stocks", height=240)
+    with right, st.container(border=True):
+        ui.panel_title("Oil headlines", "OPEC · EIA · 30 DAYS")
+        ui.headlines(search_news("oil prices OPEC Brent"), limit=9,
+                     empty="News search unavailable right now.")
+    with st.container(border=True):
+        ui.panel_title("Commodity outlook", "FORECAST · CONFIDENCE", about="outlook board")
+        ui.outlook_table(["brent", "wti", "natgas", "gold", "copper"])
+    ui.section("Live futures", "TradingView", code="02", about="futures")
     left, right = st.columns([1, 1.5], gap="small")
     with left, st.container(border=True):
         ui.panel_title("Commodities overview", "LIVE · TRADINGVIEW", about="futures")
@@ -700,7 +726,7 @@ def page_cmdty():
     with right, st.container(border=True):
         ui.panel_title("Chart", "LIVE · TRADINGVIEW")
         tv_chart_picker("cmdty_chart", 8)
-    ui.section("Monthly commodity prices", "IMF primary commodity prices via FRED", code="02",
+    ui.section("Monthly commodity prices", "IMF primary commodity prices via FRED", code="03",
                about="IMF")
     key = get_fred_key()
     if not key:
@@ -729,7 +755,7 @@ def page_cmdty():
                 hide_index=True, width="stretch")
         st.caption("Source: IMF Primary Commodity Prices (monthly averages), via FRED.")
     if not PUBLIC:
-        ui.section("Futures performance", "Yahoo Finance · your PC only", code="03")
+        ui.section("Futures performance", "Yahoo Finance · your PC only", code="04")
         performance_view(COMMODITY_MONITOR, "cmdty")
 
 
@@ -1071,8 +1097,22 @@ def page_calendar():
 
 
 def page_lab():
-    tab1, tab2, tab3 = st.tabs(["Correlation & lead/lag", "Taylor rule",
-                                "Macro momentum" if PUBLIC else "Risk appetite"])
+    tab0, tab1, tab2, tab3 = st.tabs(["Outlook board", "Correlation & lead/lag", "Taylor rule",
+                                      "Macro momentum" if PUBLIC else "Risk appetite"])
+    with tab0:
+        st.markdown("Every forecast in one place, highest confidence first "
+                    + ui.info("outlook board", "Outlook board"), unsafe_allow_html=True)
+        for label, region_ids in (
+                ("Economy", [i["id"] for i in ACTIVE if i["region"] in ("US", "UK", "EA")
+                             and i["id"] not in ("us_10y", "uk_10y", "stoxx50")]),
+                ("Markets: commodities and equities", [i["id"] for i in ACTIVE
+                                                       if i["region"] == "Markets" or i["id"] == "stoxx50"]),
+                ("Currencies and bond yields", [i["id"] for i in ACTIVE
+                                                if i["region"] == "FX" or i["id"] in ("us_10y", "uk_10y")])):
+            with st.container(border=True):
+                ui.panel_title(label)
+                ui.outlook_table([i for i in region_ids if i in FORECASTS])
+        st.caption(ui.DISCLAIMER)
     options = {f"{i['ticker']} · {i['name']}": i["id"] for i in ACTIVE
                if LOADED[i["id"]][1]["series"] is not None}
     with tab1:

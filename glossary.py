@@ -175,6 +175,25 @@ TERMS = {
                         "South Africa. Their currencies tend to be more volatile.",
     "ECB reference rates": "Official daily exchange rates published by the European Central Bank "
                            "around 4pm CET.",
+    "inventories": "How much crude oil (or gasoline) is sitting in storage. Builds (rising stocks) "
+                   "usually mean supply is outpacing demand and weigh on prices; draws support prices. "
+                   "The US EIA publishes the figures every Wednesday.",
+    "real yield": "A bond yield after inflation. The 10-year TIPS yield is the market's real interest "
+                  "rate. Rising real yields make non-interest-paying assets like gold and growth "
+                  "stocks less attractive.",
+    "breakeven inflation": "The inflation rate bond markets expect over the next 10 years: the normal "
+                           "Treasury yield minus the inflation-protected (TIPS) yield.",
+    "Brent-WTI spread": "The gap between the global (Brent) and US (WTI) oil price. It widens when US "
+                        "supply is plentiful or export routes are tight.",
+    "rate differential": "One country's interest rate minus another's. Money tends to flow towards "
+                         "higher rates, so a widening gap in the UK's favour usually supports the pound.",
+    "market forecast": "Market prices react to news instantly, so they're very hard to forecast: the "
+                       "model mostly gives a range with a slight lean. Treat the confidence score "
+                       "(what the drivers say) as the more useful part. Educational only, not advice.",
+    "outlook board": "Every forecast on the dashboard in one table: direction, 12-month projection, "
+                     "range and how many related indicators back it up.",
+    "drivers": "The five related indicators each forecast is checked against, with the direction each "
+               "one is pointing. Click a driver to open its chart.",
     "TradingView": "A market data and charting platform whose free widgets can be embedded on websites. "
                    "Its charts are interactive: drag, zoom and change the time range.",
 }
@@ -266,6 +285,21 @@ ABOUT = {
     "usdbrl": "How many Brazilian reais one dollar buys.",
     "usdkrw": "How many South Korean won one dollar buys.",
     "usdzar": "How many South African rand one dollar buys.",
+    "us_real10y": "The 10-year US Treasury yield after inflation (TIPS). The key driver of gold and "
+                  "tech-stock valuations.",
+    "us_breakeven": "Inflation the bond market expects over the next 10 years.",
+    "brent_wti": "Brent oil price minus WTI. Shows how global and US oil markets compare.",
+    "us_crude_stocks": "Weekly US commercial crude oil stocks (excluding the Strategic Petroleum "
+                       "Reserve), in millions of barrels. Rising stocks tend to push prices down.",
+    "us_crude_prod": "Weekly US crude oil output in millions of barrels a day. The US is the world's "
+                     "largest producer, so this matters for global supply.",
+    "us_gas_stocks": "Weekly US gasoline stocks in millions of barrels: a gauge of fuel demand.",
+    "us_pump": "Average US regular petrol price per gallon. Feeds straight into consumer inflation "
+               "and sentiment.",
+    "uk_us_rates": "Bank Rate minus the Fed funds rate. A rising gap tends to support the pound "
+                   "against the dollar.",
+    "ea_us_rates": "ECB deposit rate minus the Fed funds rate. A rising gap tends to support the euro "
+                   "against the dollar.",
 }
 
 

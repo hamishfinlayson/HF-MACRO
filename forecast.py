@@ -128,7 +128,8 @@ def star_rating(target_dir, signal_list, loaded):
     rows, agree, counted = [], 0, 0
     for sig_id, relationship in signal_list:
         if sig_id not in loaded or loaded[sig_id][1]["series"] is None:
-            rows.append(dict(Signal=sig_id, Moved="no data", Implies="-", Agrees="-"))
+            rows.append(dict(Signal=sig_id, Moved="no data", Implies="-", Agrees="-", id=sig_id,
+                             relationship=relationship))
             continue
         ind, res = loaded[sig_id]
         sig_dir, change = recent_direction(res["series"])
@@ -142,6 +143,7 @@ def star_rating(target_dir, signal_list, loaded):
             Moved=f"{arrow[sig_dir]} ({change:+.{ind['decimals']}f}) over 6 months",
             Implies=arrow[implied],
             Agrees="yes" if ok else "no",
+            id=sig_id, relationship=relationship,
         ))
     # stars are scored out of the signals that actually have data
     stars = round(agree / counted * 5) if counted else 0
