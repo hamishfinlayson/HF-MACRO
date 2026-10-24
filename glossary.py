@@ -194,6 +194,21 @@ TERMS = {
                      "range and how many related indicators back it up.",
     "drivers": "The five related indicators each forecast is checked against, with the direction each "
                "one is pointing. Click a driver to open its chart.",
+    "crypto": "Cryptocurrencies: digital assets recorded on a blockchain rather than issued by a "
+              "central bank. Prices are very volatile and trade 24/7.",
+    "market cap": "Market capitalisation: price x number of coins (or shares) in circulation. The "
+                  "usual way to rank how big a coin or company is.",
+    "bitcoin dominance": "Bitcoin's share of the total crypto market cap. Rising dominance often means "
+                         "money is retreating to the largest, most established coin (more cautious); "
+                         "falling dominance often means appetite for smaller, riskier coins.",
+    "fear and greed": "The Crypto Fear & Greed Index (0-100) from alternative.me, built from "
+                      "volatility, momentum, social media, dominance and search trends. Extreme fear "
+                      "can mean investors are too worried; extreme greed, too excited.",
+    "stablecoin": "A crypto token designed to hold a fixed value, usually $1 (e.g. USDT, USDC), backed "
+                  "by cash or short-term bonds. Their total size shows how much money is parked in "
+                  "crypto markets.",
+    "volume": "The value of a coin traded over the last 24 hours. High volume means a move is "
+              "backed by lots of trading.",
     "TradingView": "A market data and charting platform whose free widgets can be embedded on websites. "
                    "Its charts are interactive: drag, zoom and change the time range.",
 }
@@ -285,6 +300,10 @@ ABOUT = {
     "usdbrl": "How many Brazilian reais one dollar buys.",
     "usdkrw": "How many South Korean won one dollar buys.",
     "usdzar": "How many South African rand one dollar buys.",
+    "btc": "Bitcoin in US dollars: the largest cryptocurrency. Tends to move with tech stocks and "
+           "against real interest rates and the dollar.",
+    "eth": "Ethereum in US dollars: the second-largest cryptocurrency, the main platform for "
+           "decentralised apps and stablecoins.",
     "us_real10y": "The 10-year US Treasury yield after inflation (TIPS). The key driver of gold and "
                   "tech-stock valuations.",
     "us_breakeven": "Inflation the bond market expects over the next 10 years.",

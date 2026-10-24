@@ -17,7 +17,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import ui
-from forecast import (ar_forecast, change_over, forecast_direction, lead_lag, macro_momentum,
+from forecast import (ar_forecast, change_over, forecast_direction, history_check, lead_lag,
+                      macro_momentum, market_stats, return_correlation,
                       percentile_rank,
                       periods_from_flags, recession_probability, regime_periods, risk_appetite,
                       star_rating, taylor_rule, technical_recessions)
@@ -26,13 +27,16 @@ from indicators import (CALENDAR_RELEASES, COMMODITY_MONITOR, COUNTRIES, DEFAULT
                         IMF_INDICATORS, INDICATORS, MAJOR_ECONOMIES, NEWS_FEEDS, NEWS_QUERIES,
                         NEWS_TOPICS, RECESSIONS, REFERENCE_LINES, RISK_COMPONENTS, SHADES, SIGNALS,
                         YIELD_CURVES, RESTRICTED_IDS, TV_EQUITY_TABS, TV_COMMODITY_TABS,
-                        TV_CHART_CHOICES, COMMODITY_MONTHLY, MARKET_FORECASTS, OIL_DASHBOARD)
+                        TV_CHART_CHOICES, COMMODITY_MONTHLY, MARKET_FORECASTS, OIL_DASHBOARD,
+                        TV_CRYPTO_TABS, TV_CRYPTO_CHART, CRYPTO_TOP_N)
 from glossary import ABOUT, TERMS
+from reference import BENCHMARK, COMMODITIES, CRYPTO, CURRENCIES, FX_COMMON, FX_PAIRS, INDICES, RELEASES
 from sources import (SOURCE_NAMES, compute_derived, currency_strength, fetch_calendar, fetch_fred,
                      fetch_fx_history, fetch_fx_table, fetch_imf, fetch_imf_countries, fetch_news,
                      fetch_news_search, fetch_policy_rates, fetch_yahoo, fetch_yahoo_batch,
                      get_fred_key, load_curve, load_indicator, load_pmi, load_us_recession_flags,
-                     monthly_performance, performance_table, public_mode, source_url)
+                     monthly_performance, performance_table, public_mode, source_url,
+                     fetch_coin_markets, fetch_crypto_global, fetch_fear_greed)
 
 APP_NAME = "HF Macro"
 HERE = Path(__file__).parent
@@ -46,7 +50,8 @@ PAGES = {
     "EA": ("Euro area", "Euro area inflation, unemployment, ECB rate, Euro Stoxx 50"),
     "MKT": ("Markets", "Key equity indices, volatility and commodities with full history"),
     "WEI": ("World equities", "23 global stock indices: 1D / 1W / 1M / YTD / 1Y performance"),
-    "CMDTY": ("Commodities", "Energy, metals and agriculture futures performance"),
+    "CMDTY": ("Commodities", "Oil dashboard, energy, metals and agriculture"),
+    "CRYPTO": ("Crypto", "Top 20 coins, market cap, Bitcoin dominance, Fear & Greed, live charts"),
     "FX": ("FX", "GBP snapshot, currency strength heatmap and 20 currency pairs"),
     "GLOB": ("Global", "IMF world map, major economies and central bank rates board"),
     "CTRY": ("Country", "One-page profile for 20 economies"),
@@ -59,7 +64,7 @@ PAGES = {
 }
 TAPE = ["ftse100", "ftse250", "sp500", "nasdaq", "stoxx50", "dax", "nikkei", "vix", "brent", "gold",
         "copper", "gbpusd", "gbpeur", "eurusd", "usdjpy", "dxy", "us_10y", "uk_10y", "uk_bankrate",
-        "us_fedfunds", "ecb_dfr", "uk_cpi", "us_cpi", "ea_hicp"]
+        "us_fedfunds", "ecb_dfr", "uk_cpi", "us_cpi", "ea_hicp", "btc", "eth"]
 PERIODS = {"1Y": 1, "2Y": 2, "5Y": 5, "10Y": 10, "20Y": 20, "50Y": 50, "MAX": None}
 MOUSE = {"Zoom": "zoom", "Pan": "pan", "Line": "drawline", "Draw": "drawopenpath",
          "Box": "drawrect", "Circle": "drawcircle"}
@@ -145,17 +150,20 @@ def save_watchlist(items):
 qp = st.query_params
 PAGE = qp.get("p", "HOME") if qp.get("p", "HOME") in PAGES else "HOME"
 TICKER = qp.get("t") if qp.get("t") in BY_TICKER else None
+VIEW = qp.get("v", "CHART") if qp.get("v", "CHART") in ("CHART", "DES", "DRIVERS") else "CHART"
 
 COMMANDS = {f"{code:<6} {label.upper()} — page": ("page", code) for code, (label, _) in PAGES.items()}
 COMMANDS.update({f"{ind['ticker']:<9} {ind['name']} [{ind['region']}]": ("ticker", ind["ticker"])
                  for ind in ACTIVE})
 
 
-def go_to(page=None, ticker=None):
+def go_to(page=None, ticker=None, view=None):
     st.query_params.clear()
     st.query_params["p"] = page or PAGE
     if ticker:
         st.query_params["t"] = ticker
+    if ticker and view and view != "CHART":
+        st.query_params["v"] = view
     st.session_state.nav = None if ticker else (page or PAGE)
 
 
@@ -385,6 +393,14 @@ def performance_view(groups, key):
     colour = (lambda v: "" if v is None or pd.isna(v) else
               f"color: {ui.UP if v > 0 else ui.DOWN}; background-color: {ui.heat_colour(v, 8)}")
     allrows = []
+    every = pd.concat([performance_table(prices, items) for items in groups.values()], ignore_index=True)
+    if not every.empty:
+        with st.container(border=True):
+            ui.panel_title("Winners & losers", "PICK A PERIOD")
+            period = st.segmented_control("Period", ["1D", "1W", "1M", "YTD", "1Y"], default="1W",
+                                          key=f"{key}_mv")
+            ui.ranked_lists(every, "Name", f"{period or '1W'} %", n=5,
+                            title_up=f"Top 5 winners ({period or '1W'})", title_down=f"Top 5 losers ({period or '1W'})")
     for n, (group, items) in enumerate(groups.items(), start=1):
         table = performance_table(prices, items)
         if table.empty:
@@ -488,6 +504,23 @@ def page_detail(ticker):
         f"<span class='hv' style='font-size:1.6rem'>{ui.fmt(res['latest'], ind)}</span> "
         f"{ui.change_html(ind, change)} <span class='hs'>{ui.date_label(ind, res['latest_date'])}</span>"
         f" &nbsp;{conf}{ui.info('confidence', 'Confidence') if conf else ''}", unsafe_allow_html=True)
+
+    # Bloomberg-style function bar: CHART · DES (description) · DRIVERS (what moves it)
+    views = ["CHART", "DES"] + (["DRIVERS"] if f and not f.get("error") else [])
+    labels = {"CHART": "GP · CHART", "DES": "DES · DESCRIPTION", "DRIVERS": "DRV · DRIVERS"}
+    fn_key = f"fn_{k}"
+    if fn_key not in st.session_state or st.session_state.get(f"fn_seen_{k}") != VIEW:
+        st.session_state[fn_key] = VIEW if VIEW in views else "CHART"
+        st.session_state[f"fn_seen_{k}"] = VIEW
+    view = st.segmented_control("Function", views, format_func=lambda v: labels[v], key=fn_key,
+                                on_change=lambda: go_to(ticker=ticker, view=st.session_state[fn_key]),
+                                label_visibility="collapsed") or "CHART"
+    if view == "DES":
+        des_view(ind, res)
+        return
+    if view == "DRIVERS":
+        drivers_view(ind, res, f)
+        return
 
     s_full = res["series"]
     first, last = s_full.index[0].to_pydatetime(), s_full.index[-1].to_pydatetime()
@@ -618,6 +651,8 @@ def page_detail(ticker):
                 f"{f['counted']} related indicators with data point {ui.WORDS[f['dir']]}.",
                 unsafe_allow_html=True)
             ui.signal_table(f["table"], f["dir"])
+            st.button("Open the drivers screen ↗", key=f"drv_btn_{k}", on_click=go_to,
+                      kwargs=dict(ticker=ticker, view="DRIVERS"))
             if ind_id in MARKET_FORECASTS:
                 st.markdown("<div class='disc'>" + ui.escape(TERMS["market forecast"]) + "</div>",
                             unsafe_allow_html=True)
@@ -642,6 +677,179 @@ def page_detail(ticker):
         else:
             ui.headlines(news, limit=10, empty="No recent headlines found.")
         biggest_moves(ind, s_full, news)
+
+
+def fx_rate_info(code):
+    """Latest policy rate for a currency: from our own indicators, else the BIS board."""
+    cur = CURRENCIES.get(code, {})
+    pid = cur.get("policy_id")
+    if pid and pid in LOADED and LOADED[pid][1]["series"] is not None:
+        s = LOADED[pid][1]["series"]
+        return float(s.iloc[-1]), s.index[-1]
+    try:
+        rates = fetch_policy_rates(tuple(sorted({c["bis"] for c in COUNTRIES.values()} |
+                                                {c["bis"] for c in CURRENCIES.values()})))
+        s = rates[cur.get("bis")].dropna()
+        return float(s.iloc[-1]), s.index[-1]
+    except Exception:
+        return None, None
+
+
+def des_view(ind, res):
+    """DES: what this instrument is, the key facts, and its performance and risk numbers."""
+    ind_id, s = ind["id"], res["series"]
+    is_price = ind["unit"] != "%"
+    daily = ui.is_daily(ind)
+    stats = market_stats(s, pct=is_price, daily=daily)
+    unit = "%" if is_price else "pp"
+    left, mid, right = st.columns([1.25, 1.1, 1.1], gap="small")
+
+    with left, st.container(border=True):
+        ui.panel_title("Description", "DES")
+        rows = []
+        if ind_id in FX_PAIRS:
+            base, quote, nick = FX_PAIRS[ind_id]
+            b, q = CURRENCIES[base], CURRENCIES[quote]
+            st.markdown(f"<div class='des-head'>{base}{quote} spot exchange rate: price of 1 {base} in {quote}</div>"
+                        f"<div class='des-note'>The {b['name']} is the official currency of {b['country']}. "
+                        f"The {q['name']} is the official currency of {q['country']}.</div>", unsafe_allow_html=True)
+            rows += [(k2, v2) for k2, v2 in FX_COMMON.items()]
+            rows += [("Nickname", nick or "-"),
+                     (f"{base} central bank", b["bank"]), (f"{quote} central bank", q["bank"]),
+                     (f"{base} regime", b["regime"], "currency pair"), (f"{quote} regime", q["regime"])]
+            rb, rb_date = fx_rate_info(base)
+            rq, rq_date = fx_rate_info(quote)
+            if rb is not None:
+                rows.append((f"{base} policy rate", f"{rb:.2f}% <span class='hs'>({rb_date:%b %Y})</span>", "policy rate"))
+            if rq is not None:
+                rows.append((f"{quote} policy rate", f"{rq:.2f}% <span class='hs'>({rq_date:%b %Y})</span>"))
+            if rb is not None and rq is not None:
+                diff = rb - rq
+                rows.append(("Rate differential", f"{diff:+.2f}pp in favour of "
+                             f"{base if diff > 0 else quote}", "rate differential"))
+        elif ind_id in INDICES:
+            facts = INDICES[ind_id]
+            st.markdown(f"<div class='des-head'>{ui.escape(ind['name'])}: stock index</div>"
+                        f"<div class='des-note'>{ui.escape(facts['Note'])}</div>", unsafe_allow_html=True)
+            rows += [(k2, v2) for k2, v2 in facts.items() if k2 != "Note"]
+        elif ind_id in COMMODITIES:
+            facts = COMMODITIES[ind_id]
+            st.markdown(f"<div class='des-head'>{ui.escape(ind['name'])}: commodity</div>"
+                        f"<div class='des-note'>{ui.escape(facts['Note'])}</div>", unsafe_allow_html=True)
+            rows += [(k2, v2) for k2, v2 in facts.items() if k2 != "Note"]
+        elif ind_id in CRYPTO:
+            facts = CRYPTO[ind_id]
+            st.markdown(f"<div class='des-head'>{ui.escape(ind['name'])}: cryptocurrency</div>"
+                        f"<div class='des-note'>{ui.escape(facts['Note'])}</div>", unsafe_allow_html=True)
+            rows += [(k2, v2) for k2, v2 in facts.items() if k2 != "Note"]
+        else:
+            st.markdown(f"<div class='des-head'>{ui.escape(ind['name'])}</div>"
+                        f"<div class='des-note'>{ui.escape(ABOUT.get(ind_id, ''))}</div>", unsafe_allow_html=True)
+            freq = {"M": "Monthly", "Q": "Quarterly", "D": "Daily / weekly"}.get(
+                "D" if daily else ("Q" if (s.index[-1] - s.index[-2]).days > 60 else "M"), "")
+            rows += [("Release", RELEASES.get(ind_id, freq)), ("Frequency", freq)]
+        url = source_url(ind)
+        src = SOURCE_NAMES.get(ind["source"], ind["source"])
+        rows += [("Source", f"<a href='{url}' target='_blank'>{ui.escape(src)} ↗</a>" if url else ui.escape(src)),
+                 ("Series code", ui.escape(ind["code"])),
+                 ("History", f"{res['first_date']:%b %Y} to {res['latest_date']:%d %b %Y}")]
+        ui.des_table(rows)
+
+    with mid, st.container(border=True):
+        ui.panel_title("Performance", "CHANGE")
+        perf = [(label, ui.pct_html(stats.get(label), 2, unit)) for label in ("1D", "1W", "1M", "3M", "YTD", "1Y")
+                if stats.get(label) is not None]
+        perf += [("52-week high", ui.fmt(stats["52W high"], ind)), ("52-week low", ui.fmt(stats["52W low"], ind))]
+        if stats.get("52W position") is not None:
+            perf.append(("Position in 52W range", f"{stats['52W position']:.0f}% "
+                         + ui.percentile_bar(stats["52W position"], ind)))
+        ui.des_table(perf)
+        if stats.get("Volatility 1Y") is not None:
+            ui.panel_title("Risk", "ANNUALISED")
+            risk = [("Volatility 1M", f"{stats['Volatility 1M']:.1f}%" if stats.get("Volatility 1M") else "-"),
+                    ("Volatility 1Y", f"{stats['Volatility 1Y']:.1f}%"),
+                    ("Max drawdown 1Y", ui.pct_html(stats["Max drawdown 1Y"], 1))]
+            bench = BENCHMARK.get(ind["region"])
+            if bench and bench != ind_id and bench in LOADED and LOADED[bench][1]["series"] is not None:
+                corr = return_correlation(s, LOADED[bench][1]["series"])
+                if corr is not None:
+                    risk.append((f"Correlation with {LOADED[bench][0]['ticker']} (1Y)", f"{corr:+.2f}", "correlation"))
+            ui.des_table(risk)
+
+    with right, st.container(border=True):
+        ui.panel_title("Last 3 months", "PRICE")
+        recent = s[s.index >= s.index[-1] - pd.DateOffset(months=3)]
+        fig = ui.build_figure(ind, recent, height=230)
+        st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"des_chart_{ind_id}")
+        related = [i for i in (SIGNALS.get(ind_id, []) and [d for d, _ in SIGNALS[ind_id]]) if i in LOADED]
+        if not related:
+            related = [i["id"] for i in ACTIVE if i["group"] == ind["group"] and i["id"] != ind_id][:5]
+        if related:
+            ui.panel_title("Related instruments")
+            st.markdown(" ".join(f"<a class='drv' href='{ui.link(LOADED[r][0]['ticker'], view='DES')}' "
+                                 f"target='_self'>{LOADED[r][0]['ticker']}</a>" for r in related),
+                        unsafe_allow_html=True)
+    with st.container(border=True):
+        ui.panel_title("Research & news", "LAST 30 DAYS")
+        ui.headlines(search_news(news_query(ind)), limit=8, empty="News search unavailable right now.")
+
+
+def drivers_view(ind, res, f):
+    """DRIVERS: the forecast, then a chart for each of the five indicators behind its confidence score."""
+    ind_id = ind["id"]
+    signals = SIGNALS.get(ind_id, [])
+    top_l, top_r = st.columns([1.6, 1], gap="small")
+    with top_l, st.container(border=True):
+        ui.panel_title(f"{ind['name']}: forecast", "5Y + 12M FORECAST", about="forecast")
+        fig = ui.build_figure(ind, ui.window(res["series"], 5), height=280, forecast=f["fc"])
+        st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"drv_main_{ind_id}")
+    with top_r, st.container(border=True):
+        end = f["fc"].iloc[-1]
+        ui.panel_title("Verdict", "CONFIDENCE", about="confidence")
+        st.markdown(
+            f"<div class='des-head'>Forecast: {ui.WORDS[f['dir']].upper()} to {ui.fmt(end['median'], ind)} "
+            f"by {f['fc'].index[-1]:%b %Y}</div>"
+            f"<div class='hs'>80% range {ui.fmt(end['low'], ind)} to {ui.fmt(end['high'], ind)}</div>"
+            f"<div style='margin:10px 0'>{ui.conf_html(f['stars'])} &nbsp; <b>{f['agree']} of {f['counted']}</b> "
+            f"drivers point the same way</div>", unsafe_allow_html=True)
+        st.markdown("<div class='des-note'>" + ui.escape(
+            "Each driver below shows the last 5 years, with the last 6 months shaded: that's the move the "
+            "confidence score looks at. The history check shows whether the rule of thumb has actually "
+            "held over the past 10 years.") + "</div>", unsafe_allow_html=True)
+        if ind_id in MARKET_FORECASTS:
+            st.caption(TERMS["market forecast"])
+
+    table = f["table"].set_index("id") if "id" in f["table"].columns else None
+    for start in range(0, len(signals), 3):
+        cols = st.columns(3, gap="small")
+        for col, (sig_id, rel) in zip(cols, signals[start:start + 3]):
+            with col, st.container(border=True):
+                if sig_id not in LOADED or LOADED[sig_id][1]["series"] is None:
+                    st.markdown(f"<div class='pt'><b>{ui.escape(sig_id)}</b></div>", unsafe_allow_html=True)
+                    st.caption("Not available in this edition.")
+                    continue
+                s_ind, s_res = LOADED[sig_id]
+                row = table.loc[sig_id] if table is not None and sig_id in table.index else None
+                agrees = row is not None and row["Agrees"] == "yes"
+                verdict = ("<span class='up'>■ AGREES</span>" if agrees else "<span class='dn'>□ DISAGREES</span>"
+                           if row is not None and row["Agrees"] == "no" else "<span class='nc'>-</span>")
+                corr, check = history_check(res["series"], s_res["series"], rel)
+                st.markdown(
+                    f"<div class='pt'><b><a href='{ui.link(s_ind['ticker'])}' target='_self'>{ui.escape(s_ind['name'])}</a>"
+                    f"{ui.info(sig_id, s_ind['name'])}</b><span>{s_ind['ticker']}</span></div>"
+                    f"<div class='hs'>Usually moves {'WITH' if rel > 0 else 'AGAINST'} {ind['ticker']} · "
+                    f"last 6M: {ui.escape(str(row['Moved'])) if row is not None else '-'}</div>"
+                    f"<div>Points <b>{ui.escape(str(row['Implies']).upper()) if row is not None else '-'}</b> → {verdict}</div>",
+                    unsafe_allow_html=True)
+                window = ui.window(s_res["series"], 5)
+                recent_start = window.index[-1] - pd.DateOffset(months=6)
+                fig = ui.build_figure(s_ind, window, height=190,
+                                      shades=[("last 6 months", [(recent_start, window.index[-1])],
+                                               "rgba(232,33,43,0.14)")])
+                st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"drv_{ind_id}_{sig_id}")
+                st.markdown(f"<div class='hs'>History check (10Y, 6-month moves): "
+                            f"{'-' if corr is None else f'{corr:+.2f}'} · {ui.escape(check)}"
+                            f"{ui.info('correlation', 'Correlation')}</div>", unsafe_allow_html=True)
 
 
 def biggest_moves(ind, series, news):
@@ -697,6 +905,8 @@ def page_wei():
         ui.outlook_table(equity_ids, empty=(
             "Index forecasts need historical index prices, which can't be republished on the public "
             "edition. They're available when you run HF Macro on your own PC."))
+        if any(i in FORECASTS for i in equity_ids):
+            ui.forecast_movers(equity_ids)
     if not PUBLIC:
         ui.section("Performance table", "Yahoo Finance · your PC only", code="03")
         performance_view(EQUITY_MONITOR, "wei")
@@ -718,6 +928,7 @@ def page_cmdty():
     with st.container(border=True):
         ui.panel_title("Commodity outlook", "FORECAST · CONFIDENCE", about="outlook board")
         ui.outlook_table(["brent", "wti", "natgas", "gold", "copper"])
+        ui.forecast_movers(["brent", "wti", "natgas", "gold", "copper"])
     ui.section("Live futures", "TradingView", code="02", about="futures")
     left, right = st.columns([1, 1.5], gap="small")
     with left, st.container(border=True):
@@ -732,6 +943,7 @@ def page_cmdty():
     if not key:
         st.caption("Needs your FRED key.")
     else:
+        all_monthly = []
         for n, (group, items) in enumerate(COMMODITY_MONTHLY.items(), start=1):
             series = {}
             for code, name, unit in items:
@@ -742,6 +954,7 @@ def page_cmdty():
             table = monthly_performance(series)
             if table.empty:
                 continue
+            all_monthly.append(table)
             st.markdown(f"<div class='pt'><b>{group}</b><span>MONTHLY AVERAGE PRICES</span></div>",
                         unsafe_allow_html=True)
             pct = ["1M %", "3M %", "1Y %", "5Y %"]
@@ -753,10 +966,111 @@ def page_cmdty():
                      subset=pct),
                 column_config={"Trend (5Y)": st.column_config.LineChartColumn("Trend (5Y)", width="medium")},
                 hide_index=True, width="stretch")
+        if all_monthly:
+            with st.container(border=True):
+                ui.panel_title("Winners & losers", "MONTHLY PRICES · PICK A PERIOD")
+                period = st.segmented_control("Period", ["1M", "3M", "1Y", "5Y"], default="1Y", key="imf_mv")
+                ui.ranked_lists(pd.concat(all_monthly, ignore_index=True), "Commodity", f"{period or '1Y'} %",
+                                n=5, title_up=f"Top 5 risers ({period or '1Y'})",
+                                title_down=f"Top 5 fallers ({period or '1Y'})")
         st.caption("Source: IMF Primary Commodity Prices (monthly averages), via FRED.")
     if not PUBLIC:
         ui.section("Futures performance", "Yahoo Finance · your PC only", code="04")
         performance_view(COMMODITY_MONITOR, "cmdty")
+
+
+def page_crypto():
+    # ---- headline numbers
+    c1, c2, c3 = st.columns([1, 1, 1.6], gap="small")
+    with c1, st.container(border=True):
+        ui.panel_title("Crypto Fear & Greed", "ALTERNATIVE.ME", about="fear and greed")
+        try:
+            fng, mood = fetch_fear_greed()
+            gauge(float(fng.iloc[-1]), "gauge_fng", [([0, 25], "#2A1012"), ([25, 45], "#221A10"),
+                                                     ([45, 55], "#16191E"), ([55, 75], "#13200F"),
+                                                     ([75, 100], "#0E2016")], suffix="")
+            st.markdown(f"<div class='hs'>{ui.escape(mood.upper())} · "
+                        f"<a href='https://alternative.me/crypto/fear-and-greed-index/' target='_blank'>"
+                        f"Fear &amp; Greed Index by alternative.me</a></div>", unsafe_allow_html=True)
+        except Exception as exc:
+            fng = None
+            st.caption(f"Fear & Greed index unavailable right now ({type(exc).__name__}).")
+    with c2, st.container(border=True):
+        ui.panel_title("Crypto market", "COINGECKO", about="market cap")
+        try:
+            g = fetch_crypto_global()
+            chg = g["change_24h"] or 0
+            st.markdown(
+                f"<div class='k-name'>Total market cap{ui.info('market cap', 'Market cap')}</div>"
+                f"<div class='k-val'>${g['market_cap_bn'] / 1000:,.2f}tn "
+                f"<span class='chg {'up' if chg > 0 else 'dn'}'>{'▲' if chg > 0 else '▼'}{abs(chg):.2f}%</span></div>"
+                f"<div class='k-name' style='margin-top:8px'>Bitcoin dominance"
+                f"{ui.info('bitcoin dominance', 'Bitcoin dominance')}</div>"
+                f"<div class='k-val'>{g['btc_dominance']:.1f}%</div>"
+                f"<div class='k-name' style='margin-top:8px'>Ethereum share · 24H volume</div>"
+                f"<div class='k-val' style='font-size:1rem'>{g['eth_dominance']:.1f}% · ${g['volume_bn']:,.0f}bn</div>"
+                f"<div class='hs' style='margin-top:6px'><a href='https://www.coingecko.com' target='_blank'>"
+                f"Data provided by CoinGecko</a></div>", unsafe_allow_html=True)
+        except Exception as exc:
+            st.caption(f"CoinGecko unavailable right now ({type(exc).__name__}). Its free service "
+                       "limits how often it can be asked; try again in a minute.")
+    with c3, st.container(border=True):
+        ui.panel_title("Fear & Greed history", "90 DAYS")
+        if fng is not None:
+            ind = dict(id="fng", ticker="FNG", name="Crypto Fear & Greed", decimals=0, unit="",
+                       chart="line", region="Crypto", group="Crypto", good_when="neutral")
+            fig = ui.build_figure(ind, fng, height=250, ref_lines=[(25, "extreme fear"), (75, "extreme greed")])
+            fig.update_layout(yaxis=dict(range=[0, 100]))
+            st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="fng_hist")
+        else:
+            st.caption("Unavailable right now.")
+
+    # ---- top coins
+    ui.section(f"Top {CRYPTO_TOP_N} coins", "by market cap · CoinGecko", code="01", about="crypto")
+    try:
+        coins = fetch_coin_markets(CRYPTO_TOP_N)
+        pct = ["24H %", "7D %", "30D %"]
+        st.dataframe(
+            coins.style.format({"Price $": "{:,.4g}", "Market cap $bn": "{:,.1f}", "Volume 24H $bn": "{:,.2f}",
+                                **{c: "{:+.2f}%" for c in pct}}, na_rep="-")
+            .map(lambda v: "" if v is None or pd.isna(v) else
+                 f"color: {ui.UP if v > 0 else ui.DOWN}; background-color: {ui.heat_colour(v, 15)}",
+                 subset=pct),
+            column_config={"7D trend": st.column_config.LineChartColumn("7D trend", width="medium")},
+            hide_index=True, width="stretch", height=740)
+        st.markdown("<div class='hs'>Prices update every 10 minutes · "
+                    "<a href='https://www.coingecko.com' target='_blank'>Data provided by CoinGecko</a>"
+                    f" · stablecoins such as USDT/USDC sit near $1 {ui.info('stablecoin', 'Stablecoins')}</div>",
+                    unsafe_allow_html=True)
+    except Exception as exc:
+        st.info(f"CoinGecko unavailable right now ({type(exc).__name__}). Its free service limits how "
+                "often it can be asked; refresh in a minute.")
+
+    # ---- live charts
+    ui.section("Live charts", "TradingView", code="02", about="TradingView")
+    left, right = st.columns([1, 1.5], gap="small")
+    with left, st.container(border=True):
+        ui.panel_title("Crypto overview", "LIVE · TRADINGVIEW")
+        ui.tv_market_overview(TV_CRYPTO_TABS, height=560)
+    with right, st.container(border=True):
+        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        ui.tv_advanced_chart(TV_CRYPTO_CHART, height=560)
+
+    # ---- forecasts (PC edition) and news
+    ui.section("Bitcoin & Ethereum outlook", "forecast and what the drivers say", code="03",
+               about="market forecast")
+    crypto_ids = [i for i in ("btc", "eth") if i in LOADED]
+    if crypto_ids:
+        panel_grid(crypto_ids)
+        with st.container(border=True):
+            ui.outlook_table(crypto_ids)
+    else:
+        st.caption("Bitcoin and Ethereum forecasts need long price histories, which can't be "
+                   "republished on the public edition. They're available when you run HF Macro on your PC.")
+    with st.container(border=True):
+        ui.panel_title("Crypto headlines", "GOOGLE NEWS · 30 DAYS")
+        ui.headlines(search_news("bitcoin OR ethereum OR crypto market"), limit=12,
+                     empty="News search unavailable right now.")
 
 
 def page_global():
@@ -1056,6 +1370,22 @@ def page_fx():
     with right, st.container(border=True):
         ui.panel_title("Currency strength heatmap", "% CHANGE", about="currency strength")
         strength_heatmap()
+    ui.section("Winners & losers", "strongest and weakest currencies", code="FX", about="currency strength")
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 1])
+        period = c1.segmented_control("Period", ["1D", "1W", "1M", "3M", "YTD", "1Y"], default="1W",
+                                      key="fx_mv_period")
+        base = c2.segmented_control("Against", ["USD", "GBP", "EUR"], default="USD", key="fx_mv_base")
+        try:
+            rates = fetch_fx_history(base or "USD", tuple(HEATMAP_CURRENCIES))
+            strength = currency_strength(rates).reset_index().rename(columns={"index": "Currency"})
+            strength = strength[strength["Currency"] != (base or "USD")]
+            strength["Currency"] = [f"{c} · {CURRENCIES.get(c, {}).get('name', c)}" for c in strength["Currency"]]
+            ui.ranked_lists(strength, "Currency", period or "1W", n=5,
+                            title_up=f"Top 5 winners vs {base or 'USD'} ({period or '1W'})",
+                            title_down=f"Top 5 losers vs {base or 'USD'} ({period or '1W'})")
+        except Exception as exc:
+            st.caption(f"Currency history unavailable right now ({type(exc).__name__}).")
     region_page("FX", "Sterling, the majors, commodity currencies and emerging markets. "
                       "Full-screen views show related news and the biggest recent moves.")
 
@@ -1126,11 +1456,15 @@ def page_lab():
     with tab0:
         st.markdown("Every forecast in one place, highest confidence first "
                     + ui.info("outlook board", "Outlook board"), unsafe_allow_html=True)
+        with st.container(border=True):
+            ui.panel_title("Markets: biggest projected moves", "COMMODITIES · EQUITIES · CRYPTO · FX")
+            ui.forecast_movers([i for i in FORECASTS if i in MARKET_FORECASTS and LOADED[i][0]["unit"] != "%"])
         for label, region_ids in (
                 ("Economy", [i["id"] for i in ACTIVE if i["region"] in ("US", "UK", "EA")
                              and i["id"] not in ("us_10y", "uk_10y", "stoxx50")]),
-                ("Markets: commodities and equities", [i["id"] for i in ACTIVE
-                                                       if i["region"] == "Markets" or i["id"] == "stoxx50"]),
+                ("Markets: commodities, equities and crypto", [i["id"] for i in ACTIVE
+                                                       if i["region"] in ("Markets", "Crypto")
+                                                       or i["id"] == "stoxx50"]),
                 ("Currencies and bond yields", [i["id"] for i in ACTIVE
                                                 if i["region"] == "FX" or i["id"] in ("us_10y", "uk_10y")])):
             with st.container(border=True):
@@ -1313,6 +1647,8 @@ elif PAGE == "WEI":
     page_wei()
 elif PAGE == "CMDTY":
     page_cmdty()
+elif PAGE == "CRYPTO":
+    page_crypto()
 elif PAGE == "FX":
     page_fx()
 elif PAGE == "GLOB":

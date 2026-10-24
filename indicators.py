@@ -223,6 +223,14 @@ INDICATORS = [
          name="US petrol pump price ($/gallon)", source="fred", code="GASREGW",
          transform="level", unit="", decimals=2, good_when="down", chart="line", forecast=False),
 
+    # ================================================================== Crypto (PC edition only)
+    dict(id="btc", ticker="BTC", region="Crypto", group="Crypto", name="Bitcoin ($)",
+         source="yahoo", code="BTC-USD", transform="level", unit="", decimals=0,
+         good_when="neutral", chart="line", forecast=True),
+    dict(id="eth", ticker="ETH", region="Crypto", group="Crypto", name="Ethereum ($)",
+         source="yahoo", code="ETH-USD", transform="level", unit="", decimals=0,
+         good_when="neutral", chart="line", forecast=True),
+
     # ================================================================== FX
     dict(id="gbpusd", ticker="GBPUSD", region="FX", group="Sterling", name="GBP/USD",
          source="fred", code="DEXUSUK", transform="level", unit="", decimals=4,
@@ -349,6 +357,10 @@ SIGNALS = {
     "stoxx50": [("ecb_dfr", -1), ("eurusd", -1), ("vix", -1), ("ea_unemp", -1), ("sp500", +1)],
     "nikkei":  [("usdjpy", +1), ("vix", -1), ("sp500", +1), ("us_10y", +1), ("dxy", +1)],
 
+    # ---- crypto
+    "btc":     [("us_real10y", -1), ("dxy", -1), ("nasdaq", +1), ("vix", -1), ("us_m2", +1)],
+    "eth":     [("btc", +1), ("nasdaq", +1), ("us_real10y", -1), ("dxy", -1), ("vix", -1)],
+
     # ---- currencies (a rise = the first currency strengthening)
     "gbpusd":  [("uk_us_spread", +1), ("uk_us_rates", +1), ("dxy", -1), ("uk_cpi", +1),
                 ("ftse250", +1)],
@@ -367,7 +379,7 @@ SIGNALS = {
 }
 
 # Series that are market prices (hard to forecast): their forecasts carry an extra warning.
-MARKET_FORECASTS = {"brent", "wti", "natgas", "gold", "copper", "ftse100", "ftse250", "sp500",
+MARKET_FORECASTS = {"btc", "eth", "brent", "wti", "natgas", "gold", "copper", "ftse100", "ftse250", "sp500",
                     "nasdaq", "dax", "nikkei", "stoxx50", "gbpusd", "eurusd", "usdjpy", "dxy",
                     "us_10y", "uk_10y"}
 
@@ -534,6 +546,7 @@ NEWS_QUERIES = {
     "brent_wti": "Brent WTI spread", "us_real10y": "real yields TIPS", "us_breakeven": "inflation expectations breakeven",
     "uk_us_rates": "Bank of England Federal Reserve rates pound", "ea_us_rates": "ECB Fed rate gap euro",
     "dax": "DAX German stocks", "nikkei": "Nikkei Japan stocks", "stoxx50": "European stocks Stoxx",
+    "btc": "Bitcoin price", "eth": "Ethereum price",
 }
 
 # --------------------------------------------------------------------------
@@ -607,6 +620,7 @@ DEFAULT_WATCHLIST = ["uk_cpi", "uk_bankrate", "us_cpi", "us_unemp",
 # --------------------------------------------------------------------------
 RESTRICTED_IDS = {
     "ftse100", "ftse250", "dax", "nikkei", "stoxx50", "gold", "copper", "cu_au",  # Yahoo Finance
+    "btc", "eth",                                                                # Yahoo Finance
     "sp500", "nasdaq", "vix", "us_hy", "us_sentiment",                           # third-party FRED
 }
 
@@ -659,3 +673,17 @@ COMMODITY_MONTHLY = {
                     ("PCOCOUSDM", "Cocoa", "$/tonne"), ("PSUGAISAUSDM", "Sugar", "US cents/lb"),
                     ("PCOTTINDUSDM", "Cotton", "US cents/lb"), ("PBEEFUSDM", "Beef", "US cents/lb")],
 }
+
+
+# --------------------------------------------------------------------------
+# CRYPTO page
+# --------------------------------------------------------------------------
+TV_CRYPTO_TABS = {
+    "Crypto": [("BITSTAMP:BTCUSD", "Bitcoin"), ("BITSTAMP:ETHUSD", "Ethereum"),
+               ("COINBASE:SOLUSD", "Solana"), ("BITSTAMP:XRPUSD", "XRP"),
+               ("COINBASE:DOGEUSD", "Dogecoin"), ("COINBASE:ADAUSD", "Cardano")],
+    "Crypto vs markets": [("BITSTAMP:BTCUSD", "Bitcoin"), ("FOREXCOM:NSXUSD", "Nasdaq 100"),
+                          ("TVC:GOLD", "Gold"), ("TVC:DXY", "Dollar index")],
+}
+TV_CRYPTO_CHART = "BITSTAMP:BTCUSD"
+CRYPTO_TOP_N = 20

@@ -336,6 +336,69 @@ def fetch_eia(code):
     return parse_eia_sheet(raw)
 
 
+# ---------------------------------------------------------------- crypto (CoinGecko, alternative.me)
+# CoinGecko's free keyless API is meant for educational / open-source projects, with credit.
+# alternative.me's Fear & Greed data may be shown with credit right next to it.
+
+def parse_coin_markets(rows):
+    """CoinGecko /coins/markets -> tidy table of the top coins."""
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("CoinGecko returned no coins")
+    out = []
+    for r in rows:
+        spark = (r.get("sparkline_in_7d") or {}).get("price") or []
+        out.append({
+            "#": r.get("market_cap_rank"),
+            "Coin": f"{r.get('name', '')} ({str(r.get('symbol', '')).upper()})",
+            "Price $": r.get("current_price"),
+            "24H %": r.get("price_change_percentage_24h_in_currency", r.get("price_change_percentage_24h")),
+            "7D %": r.get("price_change_percentage_7d_in_currency"),
+            "30D %": r.get("price_change_percentage_30d_in_currency"),
+            "Market cap $bn": (r.get("market_cap") or 0) / 1e9,
+            "Volume 24H $bn": (r.get("total_volume") or 0) / 1e9,
+            "7D trend": [float(p) for p in spark[:: max(1, len(spark) // 60)]] if spark else [],
+        })
+    return pd.DataFrame(out)
+
+
+@st.cache_data(ttl=10 * 60, show_spinner=False)
+def fetch_coin_markets(n=20):
+    rows = _get("https://api.coingecko.com/api/v3/coins/markets", params={
+        "vs_currency": "usd", "order": "market_cap_desc", "per_page": n, "page": 1,
+        "sparkline": "true", "price_change_percentage": "24h,7d,30d"}).json()
+    return parse_coin_markets(rows)
+
+
+def parse_crypto_global(payload):
+    d = payload.get("data", {}) if isinstance(payload, dict) else {}
+    if not d:
+        raise ValueError("CoinGecko returned no global data")
+    pct = d.get("market_cap_percentage", {})
+    return {"market_cap_bn": d.get("total_market_cap", {}).get("usd", 0) / 1e9,
+            "volume_bn": d.get("total_volume", {}).get("usd", 0) / 1e9,
+            "change_24h": d.get("market_cap_change_percentage_24h_usd"),
+            "btc_dominance": pct.get("btc"), "eth_dominance": pct.get("eth"),
+            "coins": d.get("active_cryptocurrencies")}
+
+
+@st.cache_data(ttl=10 * 60, show_spinner=False)
+def fetch_crypto_global():
+    return parse_crypto_global(_get("https://api.coingecko.com/api/v3/global").json())
+
+
+def parse_fear_greed(payload):
+    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    if not rows:
+        raise ValueError("Fear & Greed returned no data")
+    s = pd.Series({pd.to_datetime(int(r["timestamp"]), unit="s"): float(r["value"]) for r in rows}).sort_index()
+    return s, rows[0].get("value_classification", "")
+
+
+@st.cache_data(ttl=60 * 60, show_spinner=False)
+def fetch_fear_greed(days=90):
+    return parse_fear_greed(_get("https://api.alternative.me/fng/", params={"limit": days}).json())
+
+
 # ---------------------------------------------------------------- BIS (central bank rates)
 
 def parse_bis(csv_text):

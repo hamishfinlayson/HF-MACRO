@@ -175,6 +175,16 @@ details.info > div {{ position: absolute; top: 18px; left: -10px; width: 270px; 
 details.info > div b {{ color: {ACCENT}; font-weight: 600; display: block; margin-bottom: 3px;
     font-family: {MONO}; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }}
 .tv {{ border: 1px solid {BORDER}; }}
+a.drv {{ font-family: {MONO}; color: {ACCENT} !important; text-decoration: none; border: 1px solid {BORDER};
+         padding: 1px 6px; }}
+a.drv:hover {{ border-color: {ACCENT}; background: rgba(232,33,43,.12); }}
+table.des {{ width: 100%; border-collapse: collapse; font-size: .82rem; }}
+table.des td {{ padding: 4px 8px; border-bottom: 1px solid {GRID}; vertical-align: top; }}
+table.des td.l {{ color: {ACCENT}; font-family: {SANS}; white-space: nowrap; width: 38%;
+                  text-transform: uppercase; letter-spacing: .05em; font-size: .7rem; padding-top: 6px; }}
+table.des td.v {{ color: {TEXT}; font-family: {MONO}; }}
+.des-head {{ color: {CYAN}; font-family: {MONO}; font-size: .9rem; margin: 2px 0 6px; }}
+.des-note {{ color: #E8A33D; font-family: {SANS}; font-size: .84rem; line-height: 1.45; margin: 4px 0 8px; }}
 code {{ color: {ACCENT} !important; background: {PANEL_2} !important; border-radius: 1px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -195,7 +205,7 @@ def fmt(value, ind, signed=False):
 
 
 def is_daily(ind):
-    return ind["region"] in ("FX", "Markets") or ind["group"] in ("Rates", "Money & credit", "Markets") \
+    return ind["region"] in ("FX", "Markets", "Crypto") or ind["group"] in ("Rates", "Money & credit", "Markets") \
         or ind["id"] in ("us_claims", "us_mortgage")
 
 
@@ -248,9 +258,9 @@ ARROWS = {1: "▲", -1: "▼", 0: "►"}
 WORDS = {1: "up", -1: "down", 0: "flat"}
 
 
-def link(ticker, page=None):
+def link(ticker, page=None, view=None):
     page = page or st.query_params.get("p", "HOME")
-    return f"?p={page}&t={ticker}"
+    return f"?p={page}&t={ticker}" + (f"&v={view}" if view else "")
 
 
 def section(title, subtitle="", code="", about=None):
@@ -681,7 +691,8 @@ def outlook_table(ids, empty="No forecasts available here."):
                      f"<td class='n'><span class='{arrow_cls}'>{ARROWS[f['dir']]}</span> {fmt(end['median'], ind)}</td>"
                      f"<td class='n hs'>{fmt(end['low'], ind)} to {fmt(end['high'], ind)}</td>"
                      f"<td>{conf_html(f['stars'])}</td>"
-                     f"<td class='n hs'>{f['agree']}/{f['counted']}</td></tr>"))
+                     f"<td class='n'><a class='drv' href='{link(ind['ticker'], view='DRIVERS')}' target='_self' "
+                     f"title='See the charts of the drivers'>{f['agree']}/{f['counted']} ↗</a></td></tr>"))
     if not rows:
         st.caption(empty)
         return
@@ -691,3 +702,68 @@ def outlook_table(ids, empty="No forecasts available here."):
                 "<th style='text-align:right'>80% range</th><th>Confidence" + info("confidence", "Confidence")
                 + "</th><th style='text-align:right'>Drivers</th></tr>" + "".join(r for _, r in rows) + "</table>",
                 unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------- DES and rankings
+
+def des_table(rows):
+    """Bloomberg-style description table: [(label, value, optional info key)]."""
+    body = []
+    for row in rows:
+        label, value = row[0], row[1]
+        about = row[2] if len(row) > 2 else None
+        if value in (None, "", "-"):
+            continue
+        body.append(f"<tr><td class='l'>{escape(label)}{info(about, label) if about else ''}</td>"
+                    f"<td class='v'>{value}</td></tr>")
+    st.markdown("<table class='des'>" + "".join(body) + "</table>", unsafe_allow_html=True)
+
+
+def pct_html(v, digits=2, unit="%"):
+    if v is None or pd.isna(v):
+        return "-"
+    cls = "up" if v > 0 else "dn" if v < 0 else "nc"
+    return f"<span class='{cls}'>{'+' if v > 0 else ''}{v:.{digits}f}{unit}</span>"
+
+
+def ranked_lists(df, label_col, value_col, n=5, unit="%", digits=2, title_up="Top gainers",
+                 title_down="Top losers", link_col=None):
+    """Two side-by-side lists: the n biggest rises and the n biggest falls."""
+    d = df.dropna(subset=[value_col])
+    if d.empty:
+        st.caption("No data for this period.")
+        return
+    up = d.sort_values(value_col, ascending=False).head(n)
+    down = d.sort_values(value_col, ascending=True).head(n)
+    left, right = st.columns(2, gap="small")
+    for col, title, rows in ((left, title_up, up), (right, title_down, down)):
+        lines = []
+        for k, (_, r) in enumerate(rows.iterrows(), start=1):
+            name = escape(str(r[label_col]))
+            if link_col and r.get(link_col):
+                name = f"<a href='{r[link_col]}' target='_self'>{name}</a>"
+            lines.append(f"<tr><td class='n hs' style='width:24px'>{k}</td><td>{name}</td>"
+                         f"<td class='n'>{pct_html(r[value_col], digits, unit)}</td></tr>")
+        col.markdown(f"<div class='pt'><b>{escape(title)}</b></div><table class='t'>{''.join(lines)}</table>",
+                     unsafe_allow_html=True)
+
+
+def forecast_movers(ids, n=5):
+    """Top forecast rises and falls (12-month projection vs today) among `ids`."""
+    rows = []
+    for ind_id in ids:
+        f = DATA["forecasts"].get(ind_id)
+        pair = DATA["loaded"].get(ind_id)
+        if not f or f.get("error") or pair is None:
+            continue
+        ind, res = pair
+        end = float(f["fc"]["median"].iloc[-1])
+        last = float(res["latest"])
+        change = (end - last) if ind["unit"] == "%" else ((end / last - 1) * 100 if last else None)
+        rows.append({"Indicator": f"{ind['ticker']} · {ind['name']} · conf {f['stars']}/5",
+                     "Change": change, "link": link(ind["ticker"], view="DRIVERS")})
+    if not rows:
+        st.caption("No forecasts available here.")
+        return
+    ranked_lists(pd.DataFrame(rows), "Indicator", "Change", n=n, title_up="Top forecast rises (12M)",
+                 title_down="Top forecast falls (12M)", link_col="link")

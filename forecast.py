@@ -289,6 +289,71 @@ def risk_appetite(components, loaded, years=3):
     return normal_cdf(float(np.mean(zs))) * 100, pd.DataFrame(rows)
 
 
+# ---------------------------------------------------------------- DES statistics
+
+def _change(s, when, pct):
+    past = s.asof(when)
+    if pd.isna(past) or (pct and not past):
+        return None
+    last = float(s.iloc[-1])
+    return (last / float(past) - 1) * 100 if pct else last - float(past)
+
+
+def market_stats(series, pct=True, daily=True):
+    """Performance and risk numbers for the DES screen. pct=False gives changes in units (e.g. pp)."""
+    s = series.dropna()
+    end = s.index[-1]
+    year = s[s.index >= end - pd.DateOffset(years=1)]
+    out = {
+        "1D": _change(s, s.index[-2], pct) if len(s) > 1 and daily else None,
+        "1W": _change(s, end - pd.Timedelta(days=7), pct) if daily else None,
+        "1M": _change(s, end - pd.DateOffset(months=1), pct),
+        "3M": _change(s, end - pd.DateOffset(months=3), pct),
+        "YTD": _change(s, pd.Timestamp(end.year - 1, 12, 31), pct),
+        "1Y": _change(s, end - pd.DateOffset(years=1), pct),
+        "52W high": float(year.max()), "52W low": float(year.min()),
+    }
+    span = out["52W high"] - out["52W low"]
+    out["52W position"] = (float(s.iloc[-1]) - out["52W low"]) / span * 100 if span else None
+    if daily and pct and len(year) > 30:
+        rets = np.log(year).diff().dropna()
+        out["Volatility 1Y"] = float(rets.std() * np.sqrt(252) * 100)
+        last_month = rets[rets.index >= end - pd.DateOffset(months=1)]
+        out["Volatility 1M"] = float(last_month.std() * np.sqrt(252) * 100) if len(last_month) > 5 else None
+        out["Max drawdown 1Y"] = float((year / year.cummax() - 1).min() * 100)
+    return out
+
+
+def return_correlation(a, b, days=365):
+    """Correlation of daily % changes over the last `days` (how closely two prices move together)."""
+    ra = a.dropna().pct_change()
+    rb = b.dropna().pct_change()
+    joined = pd.concat([ra, rb], axis=1, sort=True).dropna()
+    joined = joined[joined.index >= joined.index[-1] - pd.Timedelta(days=days)] if len(joined) else joined
+    return float(joined.iloc[:, 0].corr(joined.iloc[:, 1])) if len(joined) > 30 else None
+
+
+def history_check(target, driver, relationship, years=10, months=6):
+    """
+    Has the rule of thumb actually held? Correlates 6-month changes of the target and the
+    driver over the last `years`. Returns (correlation, verdict text).
+    """
+    a = target.resample("MS").last().dropna()
+    b = driver.resample("MS").last().dropna()
+    joined = pd.concat([a.diff(months), b.diff(months)], axis=1, sort=True).dropna()
+    joined = joined[joined.index >= joined.index[-1] - pd.DateOffset(years=years)] if len(joined) else joined
+    if len(joined) < 24:
+        return None, "not enough shared history"
+    corr = float(joined.iloc[:, 0].corr(joined.iloc[:, 1]))
+    if np.isnan(corr):
+        return None, "not enough shared history"
+    if abs(corr) < 0.15:
+        return corr, "weak link historically"
+    holds = (corr > 0) == (relationship > 0)
+    strength = "strong" if abs(corr) >= 0.5 else "moderate"
+    return corr, (f"rule holds ({strength})" if holds else f"history says the opposite ({strength})")
+
+
 # ---------------------------------------------------------------- macro momentum
 
 def macro_momentum(items, months=3):
