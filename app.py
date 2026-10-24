@@ -188,8 +188,9 @@ c_cmd.selectbox("Command", list(COMMANDS), index=None, key="cmd", on_change=on_c
                 placeholder="▸ ENTER COMMAND · ticker (UKCPI, GBPUSD, BRENT), page (WEI, CTRY, NEWS) "
                             "or keyword (inflation, gilt, yen)",
                 label_visibility="collapsed")
-c_clock.markdown(f"<div class='clock'><span class='live'>● LIVE</span> &nbsp;"
-                 f"{datetime.now():%a %d %b %Y %H:%M}".upper() + "</div>", unsafe_allow_html=True)
+clock_text = f"{datetime.now():%a %d %b %Y %H:%M}".upper()
+c_clock.markdown("<div class='clock'><span class='live'>● LIVE</span> &nbsp;" + clock_text + "</div>",
+                 unsafe_allow_html=True)
 ui.ticker_tape(TAPE)
 st.segmented_control("Pages", list(PAGES), format_func=lambda c: PAGES[c][0].upper(), key="nav",
                      on_change=on_nav, label_visibility="collapsed")
@@ -361,7 +362,8 @@ def load_calendar():
     try:
         cal = fetch_calendar(key, tuple(CALENDAR_RELEASES))
         if cal is not None and not cal.empty:
-            cal = cal[~cal["release_name"].str.contains("FOMC Press Release", case=False)]
+            noise = "FOMC Press Release|Debt to Gross|State Unemployment|Gross Domestic Product by"
+            cal = cal[~cal["release_name"].str.contains(noise, case=False)]
             cal = cal[cal["date"].dt.dayofweek < 5]
         return cal, None
     except Exception as exc:

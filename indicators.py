@@ -536,7 +536,7 @@ RESTRICTED_IDS = {
 # --------------------------------------------------------------------------
 TV_EQUITY_TABS = {
     "Americas": [("FOREXCOM:SPXUSD", "S&P 500"), ("FOREXCOM:NSXUSD", "Nasdaq 100"),
-                 ("FOREXCOM:DJI", "Dow Jones"), ("TVC:RUT", "Russell 2000"),
+                 ("FOREXCOM:DJI", "Dow Jones"),
                  ("TSX:TSX", "S&P/TSX (Canada)"), ("BMFBOVESPA:IBOV", "Ibovespa (Brazil)")],
     "Europe": [("FOREXCOM:UKXGBP", "FTSE 100"), ("TVC:UKX", "FTSE 100 (index)"),
                ("INDEX:DEU40", "DAX"), ("TVC:CAC40", "CAC 40"), ("TVC:SX5E", "Euro Stoxx 50"),

@@ -620,7 +620,8 @@ def tv_market_overview(tabs, height=560):
 
 def tv_advanced_chart(symbol, height=560):
     import streamlit.components.v1 as components
-    config = {"autosize": True, "symbol": symbol, "interval": "D", "timezone": "Europe/London",
+    config = {"autosize": False, "width": "100%", "height": height - 40, "symbol": symbol,
+              "interval": "D", "timezone": "Europe/London",
               "theme": "dark", "style": "1", "locale": "en", "allow_symbol_change": True,
               "hide_side_toolbar": False, "calendar": False, "backgroundColor": "rgba(0,0,0,1)",
               "gridColor": "rgba(26,32,40,1)", "withdateranges": True, "details": True}
