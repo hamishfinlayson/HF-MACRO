@@ -739,13 +739,21 @@ def page_global():
     c1, c2 = st.columns([1.3, 2])
     code = c1.selectbox("Measure", list(IMF_INDICATORS), format_func=lambda c: IMF_INDICATORS[c][0],
                         help="IMF World Economic Outlook data. " + (ui.tip("current account") or ""))
-    year = c2.select_slider("Year", options=years, value=this_year)
     try:
         df = fetch_imf(code, tuple(years))
         names = fetch_imf_countries()
     except Exception as exc:
-        st.info(f"IMF data unavailable right now ({type(exc).__name__}).")
         df, names = None, {}
+    # only offer years that actually have data for a good number of countries
+    if df is not None:
+        filled = [y for y in years if y in df.columns and df[y].notna().sum() >= max(5, 0.3 * len(df))]
+        options = filled or years
+        default = this_year if this_year in options else max(y for y in options if y <= this_year) \
+            if any(y <= this_year for y in options) else options[-1]
+        year = c2.select_slider("Year", options=options, value=default)
+    else:
+        c2.select_slider("Year", options=years, value=this_year, disabled=True)
+        st.info("Global data (IMF and World Bank) unavailable right now.")
     if df is not None:
         label, unit = IMF_INDICATORS[code]
         countries = df[df.index.isin(list(names))] if names else df[df.index.str.len() == 3]
@@ -764,8 +772,10 @@ def page_global():
                                        landcolor="#11161C", projection_type="natural earth",
                                        showocean=False, showcountries=True, countrycolor="#000"))
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="world_map")
-        st.caption(f"{label}, {year}. Years after the latest actual data are IMF projections "
-                   "(World Economic Outlook).")
+        src = df.attrs.get("source", "IMF World Economic Outlook")
+        st.caption(f"{label}, {year}. Source: {src}."
+                   + (" Years after the latest actual data are IMF projections." if src.startswith("IMF")
+                      else " Pick an earlier year if the latest has no data yet."))
         ui.section("Major economies", f"{label} · IMF", code="01", about="WEO")
         cols = [y for y in (this_year - 1, this_year, this_year + 1) if y in df.columns]
         table = df.reindex(MAJOR_ECONOMIES)[cols].copy()
@@ -835,7 +845,9 @@ def page_country():
     imf = {}
     for code in IMF_INDICATORS:
         try:
-            imf[code] = fetch_imf(code, years).loc[iso].dropna()
+            table = fetch_imf(code, years)
+            imf[code] = table.loc[iso].dropna()
+            imf[code].attrs["source"] = table.attrs.get("source", "IMF")
         except Exception:
             imf[code] = pd.Series(dtype=float)
     try:
@@ -867,25 +879,36 @@ def page_country():
                         f"<div class='k-val'>{value}</div>"
                         f"<div class='k-foot'><span>{sub}</span></div>", unsafe_allow_html=True)
 
-    def imf_val(code, yr):
+    def imf_val(code):
+        """This year's figure if there is one (IMF), otherwise the latest actual (World Bank)."""
         s = imf.get(code, pd.Series(dtype=float))
-        return f"{s[yr]:.1f}%" if yr in s.index else "-"
-    tile(tiles[0], "GDP growth", imf_val("NGDP_RPCH", this_year), f"IMF {this_year}", "GDP")
-    tile(tiles[1], "Inflation", imf_val("PCPIPCH", this_year), f"IMF {this_year}", "CPI")
-    tile(tiles[2], "Unemployment", imf_val("LUR", this_year), f"IMF {this_year}", "unemployment rate")
-    tile(tiles[3], "Govt debt / GDP", imf_val("GGXWDG_NGDP", this_year), f"IMF {this_year}",
-         "government debt")
+        src = "IMF" if s.attrs.get("source", "IMF").startswith("IMF") else "WORLD BANK"
+        if this_year in s.index:
+            return f"{s[this_year]:.1f}%", f"{src} {this_year}"
+        past = s[s.index <= this_year]
+        if len(past):
+            return f"{past.iloc[-1]:.1f}%", f"{src} {past.index[-1]}"
+        return "-", src
+    for col, code, label, about in ((tiles[0], "NGDP_RPCH", "GDP growth", "GDP"),
+                                    (tiles[1], "PCPIPCH", "Inflation", "CPI"),
+                                    (tiles[2], "LUR", "Unemployment", "unemployment rate"),
+                                    (tiles[3], "GGXWDG_NGDP", "Govt debt / GDP", "government debt")):
+        value, sub = imf_val(code)
+        tile(col, label, value, sub, about)
     tile(tiles[4], "Policy rate", f"{policy.iloc[-1]:.2f}%" if len(policy) else "-",
          f"BIS {policy.index[-1]:%b %Y}".upper() if len(policy) else "BIS", "policy rate")
-    tile(tiles[5], f"{c['ccy']} per USD", f"{fx.dropna().iloc[-1]:,.4f}" if len(fx.dropna()) else "-",
-         f"FRED {fx.dropna().index[-1]:%d %b %y}".upper() if len(fx.dropna()) else "USD base",
+    tile(tiles[5], f"{c['ccy']} per USD" if c["fx"] else "Currency",
+         f"{fx.dropna().iloc[-1]:,.4f}" if len(fx.dropna()) else c["ccy"],
+         f"FRED {fx.dropna().index[-1]:%d %b %y}".upper() if len(fx.dropna()) else "BASE CURRENCY",
          "currency pair")
 
     left, right = st.columns(2, gap="small")
     for col, code in ((left, "NGDP_RPCH"), (right, "PCPIPCH")):
         with col, st.container(border=True):
             s = imf.get(code, pd.Series(dtype=float))
-            ui.panel_title(IMF_INDICATORS[code][0], "IMF · ACTUAL + PROJECTION", about="WEO")
+            from_imf = s.attrs.get("source", "IMF").startswith("IMF")
+            ui.panel_title(IMF_INDICATORS[code][0],
+                           "IMF · ACTUAL + PROJECTION" if from_imf else "WORLD BANK · ACTUAL", about="WEO")
             if s.empty:
                 st.caption("No IMF data.")
                 continue
@@ -896,7 +919,7 @@ def page_country():
             ui.base_layout(fig, 250, unit="%")
             fig.update_layout(xaxis=dict(showspikes=False))
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"ctry_{code}")
-            st.caption("Darker bars = IMF projections.")
+            st.caption("Darker bars = IMF projections." if from_imf else "Source: World Bank (actual figures).")
     l2, m2, r2 = st.columns(3, gap="small")
     for col, title, s, unit, kk in ((l2, "Policy rate", policy, "%", "pol"),
                                     (m2, f"{c['ccy']} per USD", fx, "", "fx"),
@@ -920,7 +943,8 @@ def page_country():
             ui.headlines(search_news(f"{c['name']} economy"), limit=12, empty="News search unavailable right now.")
         except Exception:
             st.caption("News search unavailable right now.")
-    st.caption("Sources: IMF World Economic Outlook, BIS policy rates, FRED exchange rates, "
+    st.caption("Sources: IMF World Economic Outlook (or World Bank when the IMF is unreachable), "
+               "BIS policy rates, FRED exchange rates, "
                "Yahoo Finance index prices, Google News.")
 
 
@@ -938,6 +962,7 @@ def page_news():
                 gdp = fetch_imf("NGDP_RPCH", yrs)
                 if "WEOWORLD" in gdp.index:
                     st.markdown("  ·  ".join(f"**{y}:** {v:.1f}%" for y, v in gdp.loc["WEOWORLD"].dropna().items()))
+                    st.caption(gdp.attrs.get("source", ""))
                     st.caption("World real GDP growth, IMF estimates and projections.")
                 else:
                     st.caption("World total not available; see the Global page.")

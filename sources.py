@@ -593,18 +593,73 @@ def parse_imf(payload, indicator):
     return df.apply(pd.to_numeric, errors="coerce").sort_index(axis=1)
 
 
+# World Bank equivalents, used when the IMF can't be reached (the IMF blocks some
+# cloud servers). The World Bank has actual figures only - no forecasts.
+WORLD_BANK_CODES = {
+    "NGDP_RPCH": "NY.GDP.MKTP.KD.ZG",     # real GDP growth, %
+    "PCPIPCH": "FP.CPI.TOTL.ZG",         # inflation, consumer prices, %
+    "LUR": "SL.UEM.TOTL.ZS",             # unemployment, % of labour force
+    "BCA_NGDPD": "BN.CAB.XOKA.GD.ZS",    # current account balance, % of GDP
+    "GGXWDG_NGDP": "GC.DOD.TOTL.GD.ZS",  # central government debt, % of GDP
+}
+WORLD_BANK_WORLD = "WLD"   # the World Bank's code for the world total (IMF uses WEOWORLD)
+
+
+def parse_world_bank(payload):
+    """World Bank reply -> table with one row per country (ISO3 code) and one column per year."""
+    if not isinstance(payload, list) or len(payload) < 2 or not payload[1]:
+        raise ValueError("World Bank returned no values")
+    rows = [(r.get("countryiso3code") or r.get("country", {}).get("id"), int(r["date"]), r.get("value"))
+            for r in payload[1] if r.get("date", "").isdigit()]
+    df = pd.DataFrame(rows, columns=["iso", "year", "value"]).dropna(subset=["iso"])
+    df = df[df["iso"] != ""]
+    table = df.pivot_table(index="iso", columns="year", values="value", aggfunc="first")
+    table.columns = [int(c) for c in table.columns]
+    return table.apply(pd.to_numeric, errors="coerce").sort_index(axis=1)
+
+
+def fetch_world_bank(indicator, years):
+    code = WORLD_BANK_CODES[indicator]
+    payload = _get(f"https://api.worldbank.org/v2/country/all/indicator/{code}",
+                   params={"format": "json", "date": f"{min(years)}:{max(years)}",
+                           "per_page": 20000}).json()
+    table = parse_world_bank(payload)
+    if WORLD_BANK_WORLD in table.index:          # so code expecting the IMF's world code still works
+        table.loc["WEOWORLD"] = table.loc[WORLD_BANK_WORLD]
+    return table
+
+
 @st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
 def fetch_imf(indicator, years):
-    url = f"https://www.imf.org/external/datamapper/api/v1/{indicator}"
-    payload = _get(url, params={"periods": ",".join(str(y) for y in years)}).json()
-    return parse_imf(payload, indicator)
+    """
+    IMF World Economic Outlook data (actuals + forecasts). If the IMF can't be reached,
+    falls back to the World Bank (actuals only). The table's .attrs["source"] says which.
+    """
+    try:
+        url = f"https://www.imf.org/external/datamapper/api/v1/{indicator}"
+        payload = _get(url, params={"periods": ",".join(str(y) for y in years)}).json()
+        table = parse_imf(payload, indicator)
+        table.attrs["source"] = "IMF World Economic Outlook (actuals and projections)"
+    except Exception:
+        table = fetch_world_bank(indicator, years)
+        table.attrs["source"] = "World Bank World Development Indicators (actuals, no forecasts)"
+    return table
 
 
 @st.cache_data(ttl=7 * 24 * 60 * 60, show_spinner=False)
 def fetch_imf_countries():
-    payload = _get("https://www.imf.org/external/datamapper/api/v1/countries").json()
-    return {code: info.get("label", code)
-            for code, info in payload.get("countries", {}).items()}
+    """Country code -> name. IMF list if reachable, otherwise the World Bank's (countries only)."""
+    try:
+        payload = _get("https://www.imf.org/external/datamapper/api/v1/countries").json()
+        names = {code: info.get("label", code) for code, info in payload.get("countries", {}).items()}
+        if names:
+            return names
+    except Exception:
+        pass
+    payload = _get("https://api.worldbank.org/v2/country",
+                   params={"format": "json", "per_page": 400}).json()
+    return {c["id"]: c["name"] for c in payload[1]
+            if c.get("region", {}).get("value") != "Aggregates"}
 
 
 # ---------------------------------------------------------------- calendar
