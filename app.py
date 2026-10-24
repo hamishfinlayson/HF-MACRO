@@ -794,17 +794,30 @@ def page_global():
                 hovertemplate="%{text}<br>%{z:.1f}" + unit + "<extra></extra>"))
             fig.update_layout(height=440, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)",
                               font=dict(family=ui.MONO, color="#AEB8C2"),
+                              dragmode=False,
                               geo=dict(bgcolor="rgba(0,0,0,0)", showframe=False, showcoastlines=False,
                                        landcolor="#11161C", projection_type="natural earth",
+                                       projection_rotation=dict(lon=0, lat=0, roll=0),
+                                       center=dict(lon=0, lat=10), lataxis_range=[-58, 85],
                                        showocean=False, showcountries=True, countrycolor="#000"))
-            st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key="world_map")
+            # the map is locked in place (America left, Asia right); hover still shows each country
+            st.plotly_chart(fig, width="stretch", key="world_map",
+                            config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False})
         src = df.attrs.get("source", "IMF World Economic Outlook")
         st.caption(f"{label}, {year}. Source: {src}."
                    + (" Years after the latest actual data are IMF projections." if src.startswith("IMF")
                       else " Pick an earlier year if the latest has no data yet."))
-        ui.section("Major economies", f"{label} · IMF", code="01", about="WEO")
-        cols = [y for y in (this_year - 1, this_year, this_year + 1) if y in df.columns]
-        table = df.reindex(MAJOR_ECONOMIES)[cols].copy()
+        from_imf = df.attrs.get("source", "IMF").startswith("IMF")
+        ui.section("Major economies", f"{label} · {'IMF' if from_imf else 'World Bank'}", code="01",
+                   about="WEO")
+        majors = df.reindex(MAJOR_ECONOMIES).apply(pd.to_numeric, errors="coerce")
+        if from_imf:     # last year, this year and next year (IMF forecasts)
+            cols = [y for y in (this_year - 1, this_year, this_year + 1) if y in majors.columns]
+        else:            # the latest 3 years that most of these economies have published
+            ready = [y for y in sorted(majors.columns) if y <= this_year
+                     and majors[y].notna().sum() >= len(MAJOR_ECONOMIES) // 2]
+            cols = ready[-3:]
+        table = majors[cols].astype(float).copy()
         table.index = [names.get(c, c) for c in table.index]
         left, right = st.columns([1, 1.3], gap="small")
         left.dataframe(table.style.format("{:.1f}" + unit, na_rep="-"), width="stretch", height=540)

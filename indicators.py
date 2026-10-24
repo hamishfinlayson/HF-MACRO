@@ -16,6 +16,7 @@ source     : where the data comes from
                "ons"     - Office for National Statistics (UK data, no key)
                "boe"     - Bank of England (UK rates, no key)
                "yahoo"   - Yahoo Finance (market prices, no key, unofficial)
+               "eia"     - US Energy Information Administration weekly petroleum data (no key)
                "derived" - calculated from two other indicators, e.g. "uk_bankrate - uk_cpi"
 code       : the series ID at that source (e.g. "UNRATE" on FRED)
 dataset    : ONS only - the dataset the series lives in (e.g. "mm23")
@@ -210,13 +211,13 @@ INDICATORS = [
          name="Brent minus WTI spread ($/barrel)", source="derived", code="brent - wti",
          transform="level", unit="", decimals=2, good_when="neutral", chart="line", forecast=False),
     dict(id="us_crude_stocks", ticker="USCRUDE", region="Markets", group="Oil & energy",
-         name="US crude oil inventories (m barrels)", source="fred", code="WCESTUS1", scale=0.001,
+         name="US crude oil inventories (m barrels)", source="eia", code="WCESTUS1", scale=0.001,
          transform="level", unit="m", decimals=1, good_when="neutral", chart="line", forecast=False),
     dict(id="us_crude_prod", ticker="USOILPROD", region="Markets", group="Oil & energy",
-         name="US crude oil production (m barrels/day)", source="fred", code="WCRFPUS2", scale=0.001,
+         name="US crude oil production (m barrels/day)", source="eia", code="WCRFPUS2", scale=0.001,
          transform="level", unit="m", decimals=2, good_when="neutral", chart="line", forecast=False),
     dict(id="us_gas_stocks", ticker="USGASOLINE", region="Markets", group="Oil & energy",
-         name="US gasoline inventories (m barrels)", source="fred", code="WGTSTUS1", scale=0.001,
+         name="US gasoline inventories (m barrels)", source="eia", code="WGTSTUS1", scale=0.001,
          transform="level", unit="m", decimals=1, good_when="neutral", chart="line", forecast=False),
     dict(id="us_pump", ticker="USPUMP", region="Markets", group="Oil & energy",
          name="US petrol pump price ($/gallon)", source="fred", code="GASREGW",

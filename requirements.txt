@@ -4,3 +4,4 @@ plotly>=5.24
 requests>=2.32
 yfinance>=0.2.50
 feedparser>=6.0
+xlrd>=2.0

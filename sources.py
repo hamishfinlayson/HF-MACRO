@@ -212,6 +212,8 @@ def load_indicator(ind):
             raw = fetch_yahoo(ind["code"])
         elif source == "ecb":
             raw, result["official_title"] = fetch_ecb(ind["code"])
+        elif source == "eia":
+            raw, result["official_title"] = fetch_eia(ind["code"])
         elif source == "derived":
             result["error"] = "calculated after the other indicators load"
             return result
@@ -300,6 +302,38 @@ def fetch_ecb(code):
     text = _get(f"https://data-api.ecb.europa.eu/service/data/{flow}/{key}",
                 params={"format": "csvdata"}).text
     return parse_ecb(text)
+
+
+# ---------------------------------------------------------------- EIA (US energy data)
+
+def parse_eia_sheet(raw):
+    """
+    EIA history spreadsheet (sheet "Data 1", read with no header) -> (Series, title).
+    The first few rows are notes and headers; data rows start where column A is a date.
+    """
+    title = ""
+    rows = []
+    for _, r in raw.iterrows():
+        first, second = r.iloc[0], r.iloc[1] if len(r) > 1 else None
+        when = pd.to_datetime(first, errors="coerce")
+        value = pd.to_numeric(second, errors="coerce")
+        if pd.isna(when) or pd.isna(value) or isinstance(first, (int, float)):
+            if isinstance(second, str) and len(second) > 10 and not title:
+                title = second.strip()
+            continue
+        rows.append((when, float(value)))
+    if not rows:
+        raise ValueError("EIA file had no data rows")
+    s = pd.Series([v for _, v in rows], index=pd.DatetimeIndex([d for d, _ in rows]))
+    return s[~s.index.duplicated()].sort_index(), title
+
+
+@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
+def fetch_eia(code):
+    """Weekly EIA petroleum series from its public history files (no key needed)."""
+    content = _get(f"https://www.eia.gov/dnav/pet/hist_xls/{code}w.xls").content
+    raw = pd.read_excel(io.BytesIO(content), sheet_name="Data 1", header=None)
+    return parse_eia_sheet(raw)
 
 
 # ---------------------------------------------------------------- BIS (central bank rates)
@@ -461,6 +495,7 @@ SOURCE_NAMES = {
     "yahoo": "Yahoo Finance (unofficial)",
     "derived": "Calculated from other indicators on this dashboard",
     "ecb": "European Central Bank Data Portal",
+    "eia": "US Energy Information Administration",
 }
 
 
@@ -478,6 +513,8 @@ def source_url(ind):
                 f"fromshowcolumns.asp?SeriesCodes={code}&UsingCodes=Y")
     if src == "yahoo":
         return f"https://finance.yahoo.com/quote/{code}"
+    if src == "eia":
+        return f"https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=PET&s={code}&f=W"
     if src == "ecb":
         flow, key = code.split("/", 1)
         return f"https://data.ecb.europa.eu/data/datasets/{flow}/{flow}.{key}"
