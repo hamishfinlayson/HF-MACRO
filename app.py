@@ -116,6 +116,7 @@ if st.session_state.get("write_cookie"):
 def consent_gate():
     """First visit: confirm age, agree to the terms and choose cookies. Nothing is pre-ticked,
     and both cookie buttons look the same (no nudging)."""
+    ui.restore_consent(legal.CONSENT_COOKIE)        # returning visitor: reload with their saved choice
     st.markdown("<div class='brand'><span class='logo'>HF</span>MACRO<small>HFM &lt;GO&gt;</small></div>",
                 unsafe_allow_html=True)
     ui.disclaimer_bar(legal.DISCLAIMER_SHORT)
@@ -134,8 +135,10 @@ def consent_gate():
                     f"<a href='{ui.page_link('LEGAL', s='cookies')}' target='_self'>Cookie policy</a></div>",
                     unsafe_allow_html=True)
         st.markdown("#### Cookies")
-        st.markdown("HF Macro uses one strictly necessary cookie to remember these choices. It uses no "
-                    "advertising or tracking cookies of its own. **Optional:** TradingView's charts (which "
+        st.markdown("HF Macro uses one strictly necessary cookie to remember these choices and sets no "
+                    "advertising or tracking cookies of its own. The free hosting service (Streamlit "
+                    "Community Cloud) sets its own cookies, including analytics, which HF Macro can't "
+                    "control (see the Cookie policy). **Optional:** TradingView's charts (which "
                     "set TradingView cookies) and Google Fonts (which receives your IP address). With "
                     "*Essential only* the site works fully except that TradingView charts stay off until "
                     "you load them.")

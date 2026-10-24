@@ -96,9 +96,10 @@ Northern Ireland, you can also bring proceedings in your local courts.
 *Last updated: {LAST_UPDATED}*
 
 **The short version:** HF Macro doesn't ask for your name, email or any account details, doesn't
-run its own analytics or advertising, and doesn't sell or share data. The only things that can
-involve your personal data are the hosting service and, if you agree to them, TradingView's charts
-and Google's fonts.
+run any analytics or advertising of its own, and doesn't sell or share data. The things that can
+involve your personal data are the hosting service (Streamlit Community Cloud, which runs its own
+analytics that I can't switch off) and, if you agree to them, TradingView's charts and Google's
+fonts.
 
 **Who is responsible.** {OWNER} (United Kingdom), who runs HF Macro as a personal project.
 Contact: see *About & contact*.
@@ -114,8 +115,10 @@ Contact: see *About & contact*.
 
 **Hosting (always on).** The site runs on **Streamlit Community Cloud**, provided by
 Snowflake Inc. To deliver the site, their servers process technical data such as your IP address,
-browser type and the pages you request, and they may set cookies needed to run and secure the
-service. Streamlit's own usage statistics are switched off in this app's settings. See
+browser type and the pages you request. Streamlit Community Cloud also sets **its own cookies**
+on every app it hosts, including analytics and monitoring cookies (such as Google Analytics `_ga`
+and `_gid`, Segment `ajs_anonymous_id` and Datadog `_dd_s`). These are controlled by Streamlit, not
+by HF Macro, and I can't turn them off. The app's own usage statistics setting is switched off. See
 [Streamlit's privacy notice](https://streamlit.io/privacy-policy) and
 [Snowflake's privacy notice](https://www.snowflake.com/privacy-notice/).
 
@@ -163,11 +166,16 @@ your mind at any time under *Cookie settings* (the link at the bottom of every p
 | Cookie / service | Set by | What it's for | Type | How long |
 |---|---|---|---|---|
 | `{CONSENT_COOKIE}` | HF Macro | Remembers your age confirmation and cookie choice | Strictly necessary | 6 months |
-| Hosting cookies | Streamlit Community Cloud (Snowflake) | Run, balance and secure the hosted app | Strictly necessary | Set by the host |
+| Hosting cookies (e.g. `proxy-tracking-id`) | Streamlit Community Cloud (Snowflake) | Route and secure the hosted app | Strictly necessary | Set by the host |
+| Host analytics (`_ga`, `_gid`, `ajs_anonymous_id`, `_dd_s`) | Streamlit Community Cloud (Google Analytics, Segment, Datadog) | Streamlit's own measurement and monitoring of its hosting platform | Set by the host, outside HF Macro's control | Set by the host |
 | TradingView cookies | TradingView | Power the embedded charts and price boxes, and may be used for TradingView's own analytics | Optional: only with "Accept all" | Set by TradingView |
 | Google Fonts | Google | Load the typeface. No cookies, but your IP address is sent to Google | Optional: only with "Accept all" | n/a |
 
-HF Macro uses **no** advertising cookies and **no** analytics or tracking cookies of its own.
+HF Macro itself sets **no** advertising, analytics or tracking cookies. The host analytics
+cookies above come from Streamlit Community Cloud, which hosts the site for free. HF Macro can't
+switch them off. You can block them in your browser (blocking third-party or analytics cookies
+won't stop HF Macro working), and Streamlit's [privacy notice](https://streamlit.io/privacy-policy)
+explains how they use them.
 
 **Strictly necessary** cookies don't need consent under the UK's Privacy and Electronic
 Communications Regulations (PECR) because the site can't work, or can't remember your choice,

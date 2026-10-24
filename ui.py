@@ -968,3 +968,17 @@ def remember_consent(value, cookie_name, days=180):
     try {{ window.parent.document.cookie = "{cookie_name}={value or ''}; path=/; max-age={expiry}; SameSite=Lax; Secure"; }}
     catch (e) {{ document.cookie = "{cookie_name}={value or ''}; path=/; max-age={expiry}; SameSite=Lax; Secure"; }}
     </script>""", height=0)
+
+
+def restore_consent(cookie_name):
+    """If the browser already has the consent cookie, reload the page with it in the address
+    (the hosting service doesn't pass cookies through to the app, so the browser does it)."""
+    import streamlit.components.v1 as components
+    components.html(f"""<script>
+    try {{
+      const top = window.parent;
+      const m = top.document.cookie.match(/(?:^|; ){cookie_name}=(a|e)(?:;|$)/);
+      const url = new URL(top.location.href);
+      if (m && !url.searchParams.get('k')) {{ url.searchParams.set('k', m[1]); top.location.replace(url.toString()); }}
+    }} catch (e) {{}}
+    </script>""", height=0)
