@@ -38,6 +38,16 @@ CURRENCIES = {
                 regime="Floating (with occasional intervention)", policy_id=None, bis="KR"),
     "ZAR": dict(name="South African rand", country="South Africa", bank="South African Reserve Bank",
                 regime="Floating (market-determined)", policy_id=None, bis="ZA"),
+    "SEK": dict(name="Swedish krona", country="Sweden", bank="Sveriges Riksbank",
+                regime="Free floating (market-determined)", policy_id=None, bis="SE"),
+    "SGD": dict(name="Singapore dollar", country="Singapore", bank="Monetary Authority of Singapore",
+                regime="Managed: steered against a basket of currencies", policy_id=None, bis="SG"),
+    "HKD": dict(name="Hong Kong dollar", country="Hong Kong", bank="Hong Kong Monetary Authority",
+                regime="Pegged to the US dollar (7.75-7.85 band)", policy_id=None, bis="HK"),
+    "TRY": dict(name="Turkish lira", country="Turkey", bank="Central Bank of the Republic of Türkiye",
+                regime="Floating (heavily managed at times)", policy_id=None, bis="TR"),
+    "PLN": dict(name="Polish zloty", country="Poland", bank="National Bank of Poland",
+                regime="Free floating (market-determined)", policy_id=None, bis="PL"),
 }
 
 # indicator id -> (base currency, quote currency, nickname). A rate = units of quote per 1 base.
@@ -138,3 +148,51 @@ RELEASES = {
 
 # Benchmarks for the correlation figure on the DES screen
 BENCHMARK = {"FX": "dxy", "Markets": "sp500", "Crypto": "nasdaq", "EA": "stoxx50"}
+
+
+# ---------------------------------------------------------------- clickable words
+# Any of these words in an explanation becomes a link to that indicator's info screen.
+# A dict picks the right country's series from the page you're on (US / UK / EA).
+# None means "leave this phrase alone" (stops 'euro area' being linked as the euro).
+GDP = {"UK": "uk_gdp", "US": "us_gdp", "default": "us_gdp"}
+INFLATION = {"UK": "uk_cpi", "US": "us_cpi", "EA": "ea_hicp", "default": "us_cpi"}
+UNEMPLOYMENT = {"UK": "uk_unemp", "US": "us_unemp", "EA": "ea_unemp", "default": "us_unemp"}
+KEYWORDS = {
+    "GDP": GDP, "economic growth": GDP, "the economy": None,
+    "inflation": INFLATION, "CPI": INFLATION, "consumer prices": INFLATION,
+    "core inflation": {"US": "us_core_cpi", "EA": "ea_core", "default": "us_core_cpi"},
+    "core CPI": "us_core_cpi", "HICP": "ea_hicp", "core HICP": "ea_core",
+    "unemployment": UNEMPLOYMENT, "unemployment rate": UNEMPLOYMENT, "jobless rate": UNEMPLOYMENT,
+    "payrolls": "us_payrolls", "non-farm payrolls": "us_payrolls", "jobs report": "us_payrolls",
+    "jobless claims": "us_claims", "initial claims": "us_claims",
+    "retail sales": {"UK": "uk_retail", "US": "us_retail", "default": "us_retail"},
+    "industrial production": "us_indpro", "index of production": "uk_iop",
+    "consumer sentiment": "us_sentiment", "housing starts": "us_housing", "mortgage rate": "us_mortgage",
+    "mortgage rates": "us_mortgage",
+    "trade balance": {"UK": "uk_trade", "US": "us_trade", "default": "us_trade"},
+    "money supply": "us_m2", "M2": "us_m2",
+    "credit spread": "us_hy", "credit spreads": "us_hy", "high-yield": "us_hy", "junk bonds": "us_hy",
+    "Fed funds": "us_fedfunds", "Fed funds rate": "us_fedfunds", "Federal Reserve": "us_fedfunds",
+    "the Fed": "us_fedfunds", "Fed": "us_fedfunds", "FOMC": "us_fedfunds",
+    "Federal Reserve Bank of St. Louis": None,
+    "Bank Rate": "uk_bankrate", "Bank of England": "uk_bankrate", "BoE": "uk_bankrate",
+    "ECB": "ecb_dfr", "European Central Bank": "ecb_dfr", "deposit rate": "ecb_dfr",
+    "Treasury yield": "us_10y", "Treasury yields": "us_10y", "Treasuries": "us_10y",
+    "10-year Treasury": "us_10y", "gilt": "uk_10y", "gilts": "uk_10y", "gilt yields": "uk_10y",
+    "gilt yield": "uk_10y", "real yield": "us_real10y", "real yields": "us_real10y", "TIPS": "us_real10y",
+    "real interest rates": "us_real10y",
+    "breakeven inflation": "us_breakeven", "breakevens": "us_breakeven",
+    "yield curve": "us_2s10s", "2s10s": "us_2s10s", "3m10y": "us_3m10y",
+    "pay growth": "uk_pay", "wage growth": "uk_pay", "employment rate": "uk_emp",
+    "FTSE 100": "ftse100", "FTSE 250": "ftse250", "S&P 500": "sp500", "Nasdaq": "nasdaq",
+    "DAX": "dax", "Nikkei": "nikkei", "Euro Stoxx 50": "stoxx50", "VIX": "vix",
+    "Brent": "brent", "WTI": "wti", "oil": "brent", "crude": "brent", "crude oil": "brent",
+    "oil price": "brent", "oil prices": "brent", "natural gas": "natgas", "gold": "gold", "copper": "copper",
+    "Bitcoin": "btc", "Ethereum": "eth",
+    "dollar index": "dxy", "the dollar": "dxy", "US dollar": "dxy",
+    "sterling": "gbpusd", "the pound": "gbpusd", "pound": "gbpusd",
+    "euro": "eurusd", "euro area": None, "euro zone": None, "eurozone": None,
+    "yen": "usdjpy", "yuan": "usdcny", "renminbi": "usdcny", "Swiss franc": "usdchf",
+    "Canadian dollar": "usdcad", "Australian dollar": "audusd", "New Zealand dollar": "nzdusd",
+    "Indian rupee": "usdinr", "Mexican peso": "usdmxn", "South African rand": "usdzar",
+}

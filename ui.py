@@ -7,6 +7,7 @@ black background, square panels with thin borders, amber headings,
 condensed uppercase labels and monospaced numbers.
 """
 
+import re
 from html import escape
 
 import pandas as pd
@@ -15,6 +16,7 @@ import streamlit as st
 
 from glossary import lookup
 from indicators import EVENTS, MARKET_FORECASTS
+from reference import CURRENCIES, KEYWORDS
 
 # Shared with app.py (filled in once data has loaded)
 DATA = {"loaded": {}, "forecasts": {}, "go_to": None}
@@ -175,6 +177,13 @@ details.info > div {{ position: absolute; top: 18px; left: -10px; width: 270px; 
 details.info > div b {{ color: {ACCENT}; font-weight: 600; display: block; margin-bottom: 3px;
     font-family: {MONO}; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }}
 .tv {{ border: 1px solid {BORDER}; }}
+a.al {{ color: inherit !important; text-decoration: underline dotted {ACCENT}; text-underline-offset: 2px; }}
+a.al:hover {{ color: {ACCENT} !important; }}
+.info-go {{ display: flex; gap: 10px; margin-top: 6px; }}
+.info-go a {{ font-family: {MONO}; font-size: .68rem; color: {ACCENT} !important; text-decoration: none; }}
+a.kdes {{ position: relative; z-index: 6; font-family: {MONO}; font-size: .6rem; color: {MUTED} !important;
+         border: 1px solid {BORDER}; padding: 0 4px; margin-left: 6px; text-decoration: none; }}
+a.kdes:hover {{ color: #fff !important; border-color: {ACCENT}; background: {ACCENT}; }}
 a.drv {{ font-family: {MONO}; color: {ACCENT} !important; text-decoration: none; border: 1px solid {BORDER};
          padding: 1px 6px; }}
 a.drv:hover {{ border-color: {ACCENT}; background: rgba(232,33,43,.12); }}
@@ -239,14 +248,110 @@ def conf_html(n, with_info=False):
             + (info("confidence", "Confidence") if with_info else ""))
 
 
-def info(key, title=None):
-    """A small (i) icon. Click it to see a plain-English explanation of `key`."""
+def info(key, title=None, region=None):
+    """A small (i) icon. Click it to see a plain-English explanation of `key`.
+    Words in the explanation (GDP, inflation, Bank Rate...) are links to their info screens."""
     text = lookup(key)
     if not text:
         return ""
     label = escape(title or str(key))
+    pair = DATA["loaded"].get(key)
+    own = pair[0]["ticker"] if pair else None
+    jump = ""
+    if own:
+        jump = (f"<span class='info-go'><a href='{link(own, view='DES')}' target='_self'>FULL INFO ↗</a>"
+                f"<a href='{link(own)}' target='_self'>CHART ↗</a></span>")
     return (f"<details class='info'><summary title='What is this?'>i</summary>"
-            f"<div><b>{label}</b>{escape(text)}</div></details>")
+            f"<div><b>{label}</b>{autolink(text, region=region or (pair[0]['region'] if pair else None), exclude=own)}"
+            f"{jump}</div></details>")
+
+
+# ---------------------------------------------------------------- clickable words
+
+_AUTO = {}
+
+
+def _autolink_pattern():
+    """One regex for every linkable word: indicator tickers, currency codes and KEYWORDS."""
+    loaded = DATA["loaded"]
+    cache_key = len(loaded)
+    if _AUTO.get("key") == cache_key:
+        return _AUTO["re"], _AUTO["targets"]
+    targets = {}                                    # matched text (lower for words) -> target
+    exact = []                                      # case-sensitive: tickers and currency codes
+    for ind_id, (ind, _) in loaded.items():
+        if len(ind["ticker"]) >= 3:
+            exact.append(escape(ind["ticker"]))
+            targets[escape(ind["ticker"])] = ("ind", ind_id)
+    for code in CURRENCIES:
+        if escape(code) not in targets:
+            exact.append(code)
+            targets[code] = ("ccy", code)
+    words = []
+    for phrase, target in KEYWORDS.items():
+        p = escape(phrase)
+        if p != p.lower():                          # 'Fed', 'Brent', 'GDP': match the capitals exactly
+            targets[p] = ("kw", target)
+            exact.append(p)
+        else:
+            targets[p] = ("kw", target)
+            words.append(p)
+    alts = sorted([(x, True) for x in exact] + [(w, False) for w in words], key=lambda t: -len(t[0]))
+    body = "|".join(re.escape(x) if case else f"(?i:{re.escape(x)})" for x, case in alts)
+    pattern = re.compile(rf"(?<![\w/&-])({body})(?![\w/-])")
+    _AUTO.update(key=cache_key, re=pattern, targets=targets)
+    return pattern, targets
+
+
+def _resolve(target, region):
+    kind, value = target
+    if kind == "ccy":
+        return ccy_link(value)
+    ind_id = value
+    if kind == "kw":
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            ind_id = value.get(region) or value.get("default")
+    pair = DATA["loaded"].get(ind_id)
+    return (link(pair[0]["ticker"], view="DES"), pair[0]["ticker"]) if pair else None
+
+
+def autolink(text, region=None, exclude=None):
+    """Escapes `text` and turns known words into links (each target linked once)."""
+    html = escape(str(text))
+    if not DATA["loaded"]:
+        return html
+    if region is None:
+        page = st.query_params.get("p", "HOME")
+        region = page if page in ("US", "UK", "EA") else None
+    pattern, targets = _autolink_pattern()
+    used = set()
+
+    def swap(m):
+        word = m.group(1)
+        target = targets.get(word) or targets.get(word.lower())  # exact first, then any case
+        if not target:
+            return word
+        res = _resolve(target, region)
+        if res is None:
+            return word
+        href, ticker = res if isinstance(res, tuple) else (res, None)
+        if (ticker and ticker == exclude) or href in used:
+            return word
+        used.add(href)
+        return f"<a class='al' href='{href}' target='_self'>{word}</a>"
+    return pattern.sub(swap, html)
+
+
+def ccy_link(code):
+    return f"?p=FX&c={code}"
+
+
+def ccy_html(code, label=None):
+    """A currency code as a link to its currency profile (if we have one)."""
+    text = escape(label or code)
+    return f"<a class='al' href='{ccy_link(code)}' target='_self'>{text}</a>" if code in CURRENCIES else text
 
 
 def tip(key):
@@ -353,7 +458,9 @@ def sparkline_svg(series, colour, width=220, height=34):
 def kpi_card(ind, res):
     """A compact card. The whole card is clickable and opens the full-screen chart."""
     with st.container(key=f"card_{ind['id']}"):
-        top = (f"<div class='k-top'><span class='k-tk'>{ind['ticker']}</span>"
+        top = (f"<div class='k-top'><span class='k-tk'>{ind['ticker']}"
+               f"<a class='kdes' href='{link(ind['ticker'], view='DES')}' target='_self' "
+               f"title='Description and key facts'>INFO</a></span>"
                f"{'' if res['error'] else change_html(ind, None if res['previous'] is None else res['latest'] - res['previous'])}</div>"
                f"<div class='k-name' title='{escape(ind['name'])}'>{escape(ind['name'])}"
                f"{info(ind['id'], ind['name'])}</div>")
@@ -560,8 +667,9 @@ def heat_table(df, label_col, value_cols, scale=3.0, digits=2, suffix="%", links
     rows = []
     for _, r in df.iterrows():
         name = escape(str(r[label_col]))
-        if links:
-            name = f"<a href='{links(r)}' target='_self'>{name}</a>"
+        href = links(r) if links else None
+        if href:
+            name = f"<a href='{href}' target='_self'>{name}</a>"
         cells = "".join(
             f"<td class='n heat' style='background:{heat_colour(r[c], scale)}'>"
             f"{'-' if pd.isna(r[c]) else f'{r[c]:+.{digits}f}{suffix}'}</td>" for c in value_cols)
