@@ -30,6 +30,7 @@ from indicators import (CALENDAR_RELEASES, COMMODITY_MONITOR, COUNTRIES, DEFAULT
                         TV_CHART_CHOICES, COMMODITY_MONTHLY, MARKET_FORECASTS, OIL_DASHBOARD,
                         TV_CRYPTO_TABS, TV_CRYPTO_CHART, CRYPTO_TOP_N)
 from glossary import ABOUT, TERMS
+import legal
 from reference import BENCHMARK, COMMODITIES, CRYPTO, CURRENCIES, FX_COMMON, FX_PAIRS, INDICES, RELEASES
 from sources import (SOURCE_NAMES, compute_derived, currency_strength, fetch_calendar, fetch_fred,
                      fetch_fx_history, fetch_fx_table, fetch_imf, fetch_imf_countries, fetch_news,
@@ -51,7 +52,7 @@ PAGES = {
     "MKT": ("Markets", "Key equity indices, volatility and commodities with full history"),
     "WEI": ("World equities", "23 global stock indices: 1D / 1W / 1M / YTD / 1Y performance"),
     "CMDTY": ("Commodities", "Oil dashboard, energy, metals and agriculture"),
-    "CRYPTO": ("Crypto", "Top 20 coins, market cap, Bitcoin dominance, Fear & Greed, live charts"),
+    "CRYPTO": ("Crypto", "Top 20 coins, market cap, Bitcoin dominance, Fear & Greed, TradingView charts"),
     "FX": ("FX", "GBP snapshot, currency strength heatmap and 20 currency pairs"),
     "GLOB": ("Global", "IMF world map, major economies and central bank rates board"),
     "CTRY": ("Country", "One-page profile for 20 economies"),
@@ -61,6 +62,7 @@ PAGES = {
     "LAB": ("Lab", "Correlation and lead/lag explorer, Taylor rule"),
     "PMI": ("PMI", "Purchasing managers' indices (kept on your PC)"),
     "HELP": ("Help", "Every command and ticker, plus tips"),
+    "LEGAL": ("Legal", "Disclaimer, terms, privacy, cookies, accessibility and contact"),
 }
 TAPE = ["ftse100", "ftse250", "sp500", "nasdaq", "stoxx50", "dax", "nikkei", "vix", "brent", "gold",
         "copper", "gbpusd", "gbpeur", "eurusd", "usdjpy", "dxy", "us_10y", "uk_10y", "uk_bankrate",
@@ -76,7 +78,80 @@ st.set_page_config(page_title=APP_NAME, page_icon=str(LOGO) if LOGO.exists() els
 # Online (public) version hides series whose owners don't allow free republishing.
 PUBLIC = public_mode()
 ACTIVE = [i for i in INDICATORS if not (PUBLIC and i["id"] in RESTRICTED_IDS)]
-ui.inject_css()
+
+
+# ================================================================= consent (age, terms, cookies)
+# "a" = accepted all cookies, "e" = essential only, None = not asked yet.
+# The choice travels in every link (&k=) and in a small strictly-necessary cookie.
+
+def read_consent():
+    for value in (st.query_params.get("k"), st.session_state.get("consent")):
+        if value in ("a", "e"):
+            return value
+    try:
+        value = st.context.cookies.get(legal.CONSENT_COOKIE)
+    except Exception:
+        value = None
+    return value if value in ("a", "e") else None
+
+
+def set_consent(value):
+    st.session_state.consent = value
+    st.session_state.write_cookie = value or "clear"
+    if value:
+        st.query_params["k"] = value
+    elif "k" in st.query_params:
+        del st.query_params["k"]
+
+
+CONSENT = read_consent()
+st.session_state.consent = CONSENT
+ui.DATA.update(consent=CONSENT, set_consent=set_consent)
+ui.inject_css(load_fonts=CONSENT == "a")
+if st.session_state.get("write_cookie"):
+    choice = st.session_state.pop("write_cookie")
+    ui.remember_consent(None if choice == "clear" else choice, legal.CONSENT_COOKIE)
+
+
+def consent_gate():
+    """First visit: confirm age, agree to the terms and choose cookies. Nothing is pre-ticked,
+    and both cookie buttons look the same (no nudging)."""
+    st.markdown("<div class='brand'><span class='logo'>HF</span>MACRO<small>HFM &lt;GO&gt;</small></div>",
+                unsafe_allow_html=True)
+    ui.disclaimer_bar(legal.DISCLAIMER_SHORT)
+    _, mid, _ = st.columns([1, 2.4, 1])
+    with mid, st.container(border=True):
+        st.markdown("## Welcome to HF Macro")
+        st.markdown("A free, educational dashboard for economic and market data, built by "
+                    f"{legal.OWNER}. Before you start, please confirm the following.")
+        age = st.checkbox(f"I am {legal.MIN_AGE} or over", key="gate_age")
+        terms = st.checkbox("I have read and agree to the Terms of service, and I understand that nothing "
+                            "on HF Macro is financial advice", key="gate_terms")
+        st.markdown("<div class='legal-links'>"
+                    f"<a href='{ui.page_link('LEGAL', s='terms')}' target='_self'>Terms of service</a>"
+                    f"<a href='{ui.page_link('LEGAL', s='disclaimer')}' target='_self'>Disclaimer</a>"
+                    f"<a href='{ui.page_link('LEGAL', s='privacy')}' target='_self'>Privacy policy</a>"
+                    f"<a href='{ui.page_link('LEGAL', s='cookies')}' target='_self'>Cookie policy</a></div>",
+                    unsafe_allow_html=True)
+        st.markdown("#### Cookies")
+        st.markdown("HF Macro uses one strictly necessary cookie to remember these choices. It uses no "
+                    "advertising or tracking cookies of its own. **Optional:** TradingView's charts (which "
+                    "set TradingView cookies) and Google Fonts (which receives your IP address). With "
+                    "*Essential only* the site works fully except that TradingView charts stay off until "
+                    "you load them.")
+        ready = age and terms
+        c1, c2 = st.columns(2)
+        c1.button("Accept all", on_click=set_consent, args=("a",), disabled=not ready, width="stretch",
+                  key="gate_all")
+        c2.button("Essential only", on_click=set_consent, args=("e",), disabled=not ready, width="stretch",
+                  key="gate_ess")
+        if not ready:
+            st.caption(f"Tick both boxes to continue. HF Macro is only for people aged {legal.MIN_AGE} and over.")
+
+
+if CONSENT is None and st.query_params.get("p") != "LEGAL":
+    consent_gate()
+    st.stop()
 
 # ================================================================= load all data
 
@@ -132,6 +207,8 @@ def groups_for(region):
 # ================================================================= watchlist
 
 def load_watchlist():
+    if PUBLIC:                                    # public site: pins live only in your visit
+        return list(DEFAULT_WATCHLIST)
     try:
         return [i for i in json.loads(WATCHLIST_FILE.read_text()) if i in LOADED]
     except Exception:
@@ -139,6 +216,8 @@ def load_watchlist():
 
 
 def save_watchlist(items):
+    if PUBLIC:                                    # never store visitors' choices on the server
+        return
     try:
         WATCHLIST_FILE.write_text(json.dumps(items))
     except Exception:
@@ -168,6 +247,8 @@ def go_to(page=None, ticker=None, view=None, ccy=None):
         st.query_params["v"] = view
     if ccy and not ticker:
         st.query_params["c"] = ccy
+    if st.session_state.get("consent"):
+        st.query_params["k"] = st.session_state.consent
     st.session_state.nav = None if (ticker or ccy) else (page or PAGE)
 
 
@@ -203,11 +284,14 @@ c_cmd.selectbox("Command", list(COMMANDS), index=None, key="cmd", on_change=on_c
                             "page (WEI, NEWS) or keyword (inflation, gilt)",
                 label_visibility="collapsed")
 clock_text = f"{datetime.now():%a %d %b %Y %H:%M}".upper()
-c_clock.markdown("<div class='clock'><span class='live'>● LIVE</span> &nbsp;" + clock_text + "</div>",
+c_clock.markdown("<div class='clock' title='Data is cached for up to 6 hours and may be delayed'>"
+                 "<span class='live'>●</span> DELAYED DATA &nbsp;" + clock_text + "</div>",
                  unsafe_allow_html=True)
 ui.ticker_tape(TAPE)
 st.segmented_control("Pages", list(PAGES), format_func=lambda c: PAGES[c][0].upper(), key="nav",
                      on_change=on_nav, label_visibility="collapsed")
+ui.disclaimer_bar(legal.DISCLAIMER_SHORT)
+ui.keyboard_shortcuts()
 if not get_fred_key():
     st.warning("No FRED key found, so US data won't load. Add it to .streamlit/secrets.toml.")
 
@@ -459,7 +543,7 @@ def page_home():
         else:
             calendar_rows(cal, limit=8)
     with c4, st.container(border=True):
-        ui.panel_title("Top headlines", "LIVE FEEDS")
+        ui.panel_title("Top headlines", "RSS FEEDS")
         news, _ = load_news()
         ui.headlines(news, limit=8)
 
@@ -1046,14 +1130,14 @@ def tv_chart_picker(key, default=0):
 
 
 def page_wei():
-    st.markdown("World Equity Monitor · live prices " + ui.info("TradingView", "TradingView"),
+    st.markdown("World Equity Monitor · prices from TradingView (may be delayed) " + ui.info("TradingView", "TradingView"),
                 unsafe_allow_html=True)
     left, right = st.columns([1, 1.5], gap="small")
     with left, st.container(border=True):
-        ui.panel_title("Markets overview", "LIVE · TRADINGVIEW")
+        ui.panel_title("Markets overview", "TRADINGVIEW · MAY BE DELAYED")
         ui.tv_market_overview(TV_EQUITY_TABS, height=600)
     with right, st.container(border=True):
-        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        ui.panel_title("Chart", "TRADINGVIEW · MAY BE DELAYED")
         tv_chart_picker("wei_chart", 0)
     equity_ids = ["ftse100", "ftse250", "sp500", "nasdaq", "dax", "stoxx50", "nikkei"]
     ui.section("Equity outlook", "12-month forecasts and what the drivers say", code="02",
@@ -1089,10 +1173,10 @@ def page_cmdty():
     ui.section("Live futures", "TradingView", code="02", about="futures")
     left, right = st.columns([1, 1.5], gap="small")
     with left, st.container(border=True):
-        ui.panel_title("Commodities overview", "LIVE · TRADINGVIEW", about="futures")
+        ui.panel_title("Commodities overview", "TRADINGVIEW · MAY BE DELAYED", about="futures")
         ui.tv_market_overview(TV_COMMODITY_TABS, height=600)
     with right, st.container(border=True):
-        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        ui.panel_title("Chart", "TRADINGVIEW · MAY BE DELAYED")
         tv_chart_picker("cmdty_chart", 8)
     ui.section("Monthly commodity prices", "IMF primary commodity prices via FRED", code="03",
                about="IMF")
@@ -1207,10 +1291,10 @@ def page_crypto():
     ui.section("Live charts", "TradingView", code="02", about="TradingView")
     left, right = st.columns([1, 1.5], gap="small")
     with left, st.container(border=True):
-        ui.panel_title("Crypto overview", "LIVE · TRADINGVIEW")
+        ui.panel_title("Crypto overview", "TRADINGVIEW · MAY BE DELAYED")
         ui.tv_market_overview(TV_CRYPTO_TABS, height=560)
     with right, st.container(border=True):
-        ui.panel_title("Chart", "LIVE · TRADINGVIEW")
+        ui.panel_title("Chart", "TRADINGVIEW · MAY BE DELAYED")
         ui.tv_advanced_chart(TV_CRYPTO_CHART, height=560)
 
     # ---- forecasts (PC edition) and news
@@ -1449,7 +1533,7 @@ def page_country():
             ui.panel_title(title, "20Y")
             s = s.dropna()
             if s.empty:
-                st.caption("See the World Equities page for live index charts."
+                st.caption("See the World Equities page for index charts."
                            if PUBLIC and kk == "eq" else "Not available for this country.")
                 continue
             s = s[s.index >= s.index[-1] - pd.DateOffset(years=20)]
@@ -1787,6 +1871,32 @@ def page_help():
     st.dataframe(pd.DataFrame(EVENTS, columns=["Date", "Event"]), hide_index=True)
 
 
+def page_legal():
+    keys = list(legal.SECTIONS)
+    start = st.query_params.get("s") if st.query_params.get("s") in keys else "disclaimer"
+    choice = st.segmented_control("Section", keys, default=start, key="legal_s",
+                                  format_func=lambda k: legal.SECTIONS[k][0].upper(),
+                                  label_visibility="collapsed") or start
+    if CONSENT is None:
+        st.button("◄ Back to the start", on_click=go_to, kwargs=dict(page="HOME"))
+    with st.container(border=True):
+        st.markdown(legal.SECTIONS[choice][1])
+    if choice == "cookies":
+        with st.container(border=True):
+            ui.panel_title("Cookie settings", "CHANGE ANY TIME")
+            now = {"a": "Accept all (TradingView charts and Google Fonts on)",
+                   "e": "Essential only (TradingView charts and Google Fonts off)"}.get(CONSENT, "No choice made yet")
+            st.markdown(f"**Your current choice:** {now}")
+            if CONSENT is not None:
+                c1, c2, c3 = st.columns(3)
+                c1.button("Accept all", on_click=set_consent, args=("a",), width="stretch", key="ck_all")
+                c2.button("Essential only", on_click=set_consent, args=("e",), width="stretch", key="ck_ess")
+                c3.button("Withdraw and ask me again", on_click=set_consent, args=(None,), width="stretch",
+                          key="ck_clear")
+            else:
+                st.caption("Go back to the start to make your choice.")
+
+
 # ================================================================= router
 
 if TICKER:
@@ -1827,6 +1937,8 @@ elif PAGE == "PMI":
     page_pmi()
 elif PAGE == "HELP":
     page_help()
+elif PAGE == "LEGAL":
+    page_legal()
 
 ui.status_bar(SOURCE_HEALTH, f"{sum(1 for _, r in LOADED.values() if r['error'] is None)}/"
                              f"{len(LOADED)} SERIES · CACHE 6H" + (" · PUBLIC EDITION" if PUBLIC else ""))
@@ -1835,3 +1947,4 @@ st.caption("Personal educational project. " + ui.DISCLAIMER + " Sources: FRED (F
            "it) · ONS (Open Government Licence v3.0) · Bank of England · ECB · BIS · IMF · ECB rates "
            "via Frankfurter · Yahoo Finance · Google News and public RSS feeds (headlines and links "
            "only). Not affiliated with Bloomberg L.P. · Built by Hamish Finlayson.")
+ui.legal_footer()

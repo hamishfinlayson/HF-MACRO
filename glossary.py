@@ -70,7 +70,7 @@ TERMS = {
                          "base currency over each period.",
     "public mode": "The online version hides a few series owned by private companies (some stock "
                    "indices, volatility and credit data) because they can't be republished freely. "
-                   "Live market charts come from TradingView instead.",
+                   "Market charts come from TradingView instead (prices may be delayed).",
 
     # ---- economics
     "GDP": "Gross Domestic Product: the total value of goods and services an economy produces. Its "

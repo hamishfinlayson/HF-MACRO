@@ -630,33 +630,37 @@ RESTRICTED_IDS = {
 # TRADINGVIEW widgets (free to embed on websites, with TradingView's link kept).
 # Symbols are TradingView codes. Some exchanges' data may show as unavailable.
 # --------------------------------------------------------------------------
+# Only symbols TradingView lets free embeds show (others say "only available on TradingView").
+# Tested Oct 2026. Bond yields aren't embeddable, so the rates tab uses bond prices and FRED yields.
 TV_EQUITY_TABS = {
     "Americas": [("FOREXCOM:SPXUSD", "S&P 500"), ("FOREXCOM:NSXUSD", "Nasdaq 100"),
                  ("FOREXCOM:DJI", "Dow Jones"),
                  ("TSX:TSX", "S&P/TSX (Canada)"), ("BMFBOVESPA:IBOV", "Ibovespa (Brazil)")],
-    "Europe": [("FOREXCOM:UKXGBP", "FTSE 100"), ("TVC:UKX", "FTSE 100 (index)"),
-               ("INDEX:DEU40", "DAX"), ("TVC:CAC40", "CAC 40"), ("TVC:SX5E", "Euro Stoxx 50"),
-               ("TVC:IBEX35", "IBEX 35")],
-    "Asia-Pacific": [("INDEX:NKY", "Nikkei 225"), ("TVC:HSI", "Hang Seng"),
-                     ("SSE:000001", "Shanghai Composite"), ("TVC:KOSPI", "KOSPI"),
-                     ("BSE:SENSEX", "Sensex"), ("ASX:XJO", "ASX 200")],
-    "Volatility & rates": [("TVC:VIX", "VIX"), ("TVC:US10Y", "US 10Y yield"),
-                           ("TVC:GB10Y", "UK 10Y yield"), ("TVC:DE10Y", "Germany 10Y yield"),
-                           ("TVC:DXY", "Dollar index")],
+    "Europe": [("FOREXCOM:UKXGBP", "FTSE 100"), ("INDEX:DEU40", "DAX"), ("INDEX:CAC40", "CAC 40"),
+               ("INDEX:SX5E", "Euro Stoxx 50"), ("BME:IBC", "IBEX 35")],
+    "Asia-Pacific": [("INDEX:NKY", "Nikkei 225"), ("INDEX:HSI", "Hang Seng"),
+                     ("SSE:000001", "Shanghai Composite"), ("INDEX:KSIC", "KOSPI"),
+                     ("BSE:SENSEX", "Sensex"), ("CAPITALCOM:AU200", "ASX 200 (CFD)")],
+    "Volatility & rates": [("CAPITALCOM:VIX", "VIX"), ("FRED:DGS10", "US 10Y yield (FRED, daily)"),
+                           ("OANDA:USB10YUSD", "US 10Y Treasury (price)"),
+                           ("OANDA:UK10YBGBP", "UK 10Y gilt (price)"),
+                           ("OANDA:DE10YBEUR", "German 10Y Bund (price)"),
+                           ("INDEX:DXY", "Dollar index")],
 }
 TV_COMMODITY_TABS = {
     "Energy": [("TVC:UKOIL", "Brent crude"), ("TVC:USOIL", "WTI crude"),
-               ("NYMEX:NG1!", "Natural gas"), ("NYMEX:RB1!", "Gasoline")],
+               ("CAPITALCOM:NATURALGAS", "Natural gas"), ("CAPITALCOM:GASOLINE", "Gasoline")],
     "Metals": [("TVC:GOLD", "Gold"), ("TVC:SILVER", "Silver"), ("TVC:PLATINUM", "Platinum"),
-               ("COMEX:HG1!", "Copper")],
-    "Agriculture": [("CBOT:ZW1!", "Wheat"), ("CBOT:ZC1!", "Corn"), ("CBOT:ZS1!", "Soybeans"),
-                    ("ICEUS:KC1!", "Coffee"), ("ICEUS:SB1!", "Sugar"), ("ICEUS:CC1!", "Cocoa")],
+               ("CAPITALCOM:COPPER", "Copper")],
+    "Agriculture": [("CAPITALCOM:WHEAT", "Wheat"), ("CAPITALCOM:CORN", "Corn"),
+                    ("CAPITALCOM:SOYBEAN", "Soybeans"), ("CAPITALCOM:COFFEE", "Coffee"),
+                    ("CAPITALCOM:SUGAR", "Sugar"), ("CAPITALCOM:COCOA", "Cocoa")],
 }
 TV_CHART_CHOICES = [("FOREXCOM:UKXGBP", "FTSE 100"), ("FOREXCOM:SPXUSD", "S&P 500"),
                     ("FOREXCOM:NSXUSD", "Nasdaq 100"), ("INDEX:DEU40", "DAX"),
-                    ("INDEX:NKY", "Nikkei 225"), ("TVC:SX5E", "Euro Stoxx 50"),
-                    ("TVC:VIX", "VIX"), ("TVC:GOLD", "Gold"), ("TVC:UKOIL", "Brent crude"),
-                    ("COMEX:HG1!", "Copper"), ("FX:GBPUSD", "GBP/USD")]
+                    ("INDEX:NKY", "Nikkei 225"), ("INDEX:SX5E", "Euro Stoxx 50"),
+                    ("CAPITALCOM:VIX", "VIX"), ("TVC:GOLD", "Gold"), ("TVC:UKOIL", "Brent crude"),
+                    ("CAPITALCOM:COPPER", "Copper"), ("FX:GBPUSD", "GBP/USD")]
 
 # --------------------------------------------------------------------------
 # COMMODITY PRICES (monthly) - IMF Primary Commodity Prices, via FRED.
@@ -683,7 +687,7 @@ TV_CRYPTO_TABS = {
                ("COINBASE:SOLUSD", "Solana"), ("BITSTAMP:XRPUSD", "XRP"),
                ("COINBASE:DOGEUSD", "Dogecoin"), ("COINBASE:ADAUSD", "Cardano")],
     "Crypto vs markets": [("BITSTAMP:BTCUSD", "Bitcoin"), ("FOREXCOM:NSXUSD", "Nasdaq 100"),
-                          ("TVC:GOLD", "Gold"), ("TVC:DXY", "Dollar index")],
+                          ("TVC:GOLD", "Gold"), ("INDEX:DXY", "Dollar index")],
 }
 TV_CRYPTO_CHART = "BITSTAMP:BTCUSD"
 CRYPTO_TOP_N = 20

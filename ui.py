@@ -19,7 +19,7 @@ from indicators import EVENTS, MARKET_FORECASTS
 from reference import CURRENCIES, KEYWORDS
 
 # Shared with app.py (filled in once data has loaded)
-DATA = {"loaded": {}, "forecasts": {}, "go_to": None}
+DATA = {"loaded": {}, "forecasts": {}, "go_to": None, "consent": None, "set_consent": None}
 
 # ---------------------------------------------------------------- palette
 BG, PANEL, PANEL_2, BORDER = "#000000", "#0A0D11", "#11161C", "#1C232B"
@@ -29,8 +29,10 @@ CYAN = "#3FB6FF"
 UP, DOWN = "#2ECC71", "#FF6B6B"
 GRID = "#12171D"
 SERIES_COLOURS = [CYAN, "#C792EA", "#5EE6C9"]
-MONO = "IBM Plex Mono, Consolas, monospace"
-SANS = "IBM Plex Sans Condensed, IBM Plex Sans, Arial Narrow, sans-serif"
+MONO = "'IBM Plex Mono', Consolas, 'Cascadia Mono', Menlo, monospace"
+SANS = "'IBM Plex Sans Condensed', 'IBM Plex Sans', 'Arial Narrow', 'Segoe UI', Roboto, Arial, sans-serif"
+FONTS_URL = ("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600"
+             "&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap")
 
 PLOT_CONFIG = {
     "displaylogo": False, "scrollZoom": True, "displayModeBar": True,
@@ -44,11 +46,28 @@ DISCLAIMER = ("Forecasts are simple statistical projections for educational purp
               "They are not financial advice and should not be relied on for any decision.")
 
 
-def inject_css():
+def inject_css(load_fonts=False):
+    """load_fonts: Google Fonts are only requested after the visitor accepts optional cookies
+    (they send the visitor's IP address to Google). Otherwise system fonts are used."""
+    fonts = f"@import url('{FONTS_URL}');" if load_fonts else ""
     st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+{fonts}
 .stApp {{ background: {BG}; }}
+/* keyboard users: a clear red outline on whatever has focus */
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible,
+[role="radio"]:focus-visible, [role="tab"]:focus-visible, [tabindex]:focus-visible {{
+    outline: 2px solid {ACCENT} !important; outline-offset: 2px; }}
+div[class*="st-key-card_"]:focus-within {{ border-color: {ACCENT} !important; box-shadow: 0 0 0 2px {ACCENT}; }}
+/* the not-financial-advice bar */
+.disc {{ border: 1px solid {ACCENT}; border-left: 6px solid {ACCENT}; background: rgba(232,33,43,.10);
+        color: #FFD9DB; font-family: {SANS}; font-size: .86rem; padding: 7px 12px; margin: 6px 0 10px; }}
+.disc b {{ color: #fff; letter-spacing: .04em; }}
+.gate {{ border: 1px solid {BORDER}; background: {PANEL}; padding: 18px 22px; max-width: 760px; margin: 10px auto; }}
+.gate h2 {{ font-family: {SANS}; color: #fff; font-size: 1.3rem; margin: 0 0 6px; }}
+.legal-links {{ font-family: {SANS}; font-size: .78rem; color: {MUTED}; margin-top: 4px; }}
+.legal-links a {{ color: {MUTED} !important; margin-right: 14px; }}
+.legal-links a:hover {{ color: {ACCENT} !important; }}
 .stApp, .stMarkdown, .stCaption, label, input, textarea, button p, [data-baseweb="select"] div,
 [data-testid="stMetricLabel"], [data-testid="stTable"], .stDataFrame {{
     font-family: {SANS} !important; }}
@@ -345,7 +364,7 @@ def autolink(text, region=None, exclude=None):
 
 
 def ccy_link(code):
-    return f"?p=FX&c={code}"
+    return f"?p=FX&c={code}" + keep()
 
 
 def ccy_html(code, label=None):
@@ -363,9 +382,18 @@ ARROWS = {1: "▲", -1: "▼", 0: "►"}
 WORDS = {1: "up", -1: "down", 0: "flat"}
 
 
+def keep():
+    """Carries the visitor's consent choice in every link, so they're only asked once."""
+    return f"&k={DATA['consent']}" if DATA.get("consent") else ""
+
+
 def link(ticker, page=None, view=None):
     page = page or st.query_params.get("p", "HOME")
-    return f"?p={page}&t={ticker}" + (f"&v={view}" if view else "")
+    return f"?p={page}&t={ticker}" + (f"&v={view}" if view else "") + keep()
+
+
+def page_link(page, **extra):
+    return f"?p={page}" + "".join(f"&{k}={v}" for k, v in extra.items()) + keep()
 
 
 def section(title, subtitle="", code="", about=None):
@@ -477,7 +505,7 @@ def kpi_card(ind, res):
                         f"{sparkline_svg(res['series'], colour)}"
                         f"<div class='k-foot'><span>{date_label(ind, res['latest_date'])}</span>"
                         f"<span>{outlook}</span></div>", unsafe_allow_html=True)
-        st.button("open", key=f"cbtn_{ind['id']}", on_click=DATA["go_to"],
+        st.button(f"Open {ind['name']}", key=f"cbtn_{ind['id']}", on_click=DATA["go_to"],
                   kwargs=dict(ticker=ind["ticker"]))
 
 
@@ -706,7 +734,7 @@ def headlines(df, limit=25, empty="No headlines match."):
 
 # ---------------------------------------------------------------- TradingView widgets
 # TradingView allows its widgets to be embedded on websites for free, as long as
-# the small "TradingView" link underneath stays. These show live, licensed prices.
+# the small "TradingView" link underneath stays. These show TradingView's licensed prices (may be delayed).
 
 def _tv_html(script, config, height):
     import json
@@ -714,12 +742,30 @@ def _tv_html(script, config, height):
             f"<div class='tradingview-widget-container__widget' style='height:{height - 32}px'></div>"
             f"<div class='tradingview-widget-copyright' style='font:11px {SANS};color:{DIM}'>"
             f"<a href='https://www.tradingview.com/' rel='noopener nofollow' target='_blank' "
-            f"style='color:{MUTED}'>Live data by TradingView</a></div>"
+            f"style='color:{MUTED}'>Charts by TradingView</a></div>"
             f"<script type='text/javascript' src='https://s3.tradingview.com/external-embedding/{script}' "
             f"async>{json.dumps(config)}</script></div>")
 
 
+def tv_blocked(key, height):
+    """Shown instead of a TradingView widget until the visitor accepts optional cookies."""
+    if DATA.get("consent") == "a":
+        return False
+    with st.container(border=True, height=height - 20):
+        st.markdown(f"<div class='des-head'>TradingView chart not loaded</div><div class='des-note'>"
+                    f"This chart comes from TradingView, which sets its own cookies and receives your IP "
+                    f"address. You chose \"Essential only\", so it hasn't been loaded. "
+                    f"<a href='{page_link('LEGAL', s='cookies')}' target='_self'>Cookie policy</a></div>",
+                    unsafe_allow_html=True)
+        if DATA.get("set_consent"):
+            st.button("Load TradingView charts (accept optional cookies)", key=f"tvok_{key}",
+                      on_click=DATA["set_consent"], args=("a",))
+    return True
+
+
 def tv_market_overview(tabs, height=560):
+    if tv_blocked("mo_" + "_".join(tabs)[:40], height):
+        return
     import streamlit.components.v1 as components
     config = {
         "colorTheme": "dark", "dateRange": "12M", "showChart": True, "locale": "en",
@@ -737,6 +783,8 @@ def tv_market_overview(tabs, height=560):
 
 
 def tv_advanced_chart(symbol, height=560):
+    if tv_blocked("ac_" + symbol, height):
+        return
     import streamlit.components.v1 as components
     config = {"autosize": False, "width": "100%", "height": height - 40, "symbol": symbol,
               "interval": "D", "timezone": "Europe/London",
@@ -875,3 +923,48 @@ def forecast_movers(ids, n=5):
         return
     ranked_lists(pd.DataFrame(rows), "Indicator", "Change", n=n, title_up="Top forecast rises (12M)",
                  title_down="Top forecast falls (12M)", link_col="link")
+
+
+# ---------------------------------------------------------------- disclaimer, footer, keyboard
+
+def disclaimer_bar(text):
+    st.markdown(f"<div class='disc' role='note'><b>⚠ {escape(text.split('.')[0])}.</b>"
+                f"{escape(text[len(text.split('.')[0]) + 1:])}</div>", unsafe_allow_html=True)
+
+
+def legal_footer():
+    items = [("disclaimer", "Disclaimer"), ("terms", "Terms of service"), ("privacy", "Privacy policy"),
+             ("cookies", "Cookie policy"), ("cookies", "Cookie settings"), ("accessibility", "Accessibility"),
+             ("about", "About & contact")]
+    st.markdown("<div class='legal-links'>" + "".join(
+        f"<a href='{page_link('LEGAL', s=s)}' target='_self'>{label}</a>" for s, label in items) + "</div>",
+        unsafe_allow_html=True)
+
+
+def keyboard_shortcuts():
+    """'/' jumps to the command bar; Esc closes any open (i) box. Runs once per page."""
+    import streamlit.components.v1 as components
+    components.html("""<script>
+    const doc = window.parent.document;
+    if (!window.parent.__hfmKeys) {
+      window.parent.__hfmKeys = true;
+      doc.addEventListener('keydown', (e) => {
+        const t = e.target, typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        if (e.key === '/' && !typing) {
+          const box = doc.querySelector('.st-key-cmd input');
+          if (box) { e.preventDefault(); box.focus(); }
+        }
+        if (e.key === 'Escape') { doc.querySelectorAll('details.info[open]').forEach(d => d.removeAttribute('open')); }
+      });
+    }
+    </script>""", height=0)
+
+
+def remember_consent(value, cookie_name, days=180):
+    """Stores the consent choice in a small first-party cookie (strictly necessary)."""
+    import streamlit.components.v1 as components
+    expiry = days * 86400 if value else 0
+    components.html(f"""<script>
+    try {{ window.parent.document.cookie = "{cookie_name}={value or ''}; path=/; max-age={expiry}; SameSite=Lax; Secure"; }}
+    catch (e) {{ document.cookie = "{cookie_name}={value or ''}; path=/; max-age={expiry}; SameSite=Lax; Secure"; }}
+    </script>""", height=0)
