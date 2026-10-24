@@ -1,0 +1,9 @@
+# Never upload these
+.streamlit/secrets.toml
+data/pmi.csv
+data/watchlist.json
+
+# Python clutter
+__pycache__/
+*.pyc
+.venv/
