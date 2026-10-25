@@ -7,6 +7,33 @@ To add one, just add a line. Keep it short: what it is, then why it matters.
 """
 
 TERMS = {
+    # ---- forecasting and models
+    "backtest": "Testing a model on the past: at each date in the last 10 years it's re-run using only the "
+                "data that existed then, and its forecast is compared with what actually happened. It shows "
+                "a model's real track record. (It uses today's revised data, so it's a slightly flattering test.)",
+    "average miss": "Mean absolute error: the average size of a model's forecast errors, ignoring whether "
+                    "they were too high or too low. Smaller is better.",
+    "no change": "The simplest forecast: 'in a year it'll be where it is today'. A model is only useful if "
+                 "it beats this benchmark.",
+    "direction hit rate": "How often the model got the direction right (up or down) when the indicator "
+                          "made a meaningful move. 50% is a coin toss.",
+    "VAR": "Vector autoregression: forecasts several indicators together (e.g. inflation, unemployment and "
+           "the interest rate), each from the recent history of all of them. A standard central bank tool.",
+    "Phillips curve": "The idea that inflation rises when unemployment is unusually low (a tight jobs market "
+                      "pushes up wages and prices) and falls when unemployment is high.",
+    "ensemble": "Averaging several models. Different models make different mistakes, so the average is "
+                "often more accurate than any single one.",
+    "forward rate": "An interest rate for a future period that's built into today's bond yields. E.g. the "
+                    "1-year rate one year from now. It shows where markets expect interest rates to go.",
+    "market-implied": "What prices in financial markets say investors expect, e.g. the path of interest rates "
+                      "built into Treasury yields, or expected inflation from breakevens.",
+    "term premium": "The extra yield investors demand for lending for longer. It means forward rates "
+                    "slightly overstate expected interest rates.",
+    "SEP": "The Fed's Summary of Economic Projections: four times a year, Fed officials publish where they "
+           "expect interest rates, inflation, unemployment and growth to be. These are the medians.",
+    "first estimate": "The first published figure for a period. GDP and jobs numbers are revised later as "
+                      "more data comes in, sometimes a lot.",
+    "revision": "A change to an already published figure as more complete data arrives.",
     # ---- units and maths
     "pp": "Percentage points. The plain difference between two percentages: inflation going from 3% "
           "to 4% is +1pp (not +33%).",
@@ -307,6 +334,14 @@ ABOUT = {
     "us_real10y": "The 10-year US Treasury yield after inflation (TIPS). The key driver of gold and "
                   "tech-stock valuations.",
     "us_breakeven": "Inflation the bond market expects over the next 10 years.",
+    "us_2y": "Yield on 2-year US government bonds. Very sensitive to where markets think the Fed will "
+             "take interest rates over the next two years.",
+    "us_be5": "Inflation the bond market expects over the next 5 years: the gap between normal and "
+              "inflation-protected (TIPS) 5-year Treasury yields.",
+    "us_5y5y": "Inflation the market expects for the 5 years starting 5 years from now. The Fed watches it "
+               "to check that long-term inflation expectations stay anchored near 2%.",
+    "uk_house": "UK residential property prices, % change on a year earlier (quarterly, from the Bank for "
+                "International Settlements). Higher interest rates usually cool house prices.",
     "brent_wti": "Brent oil price minus WTI. Shows how global and US oil markets compare.",
     "us_crude_stocks": "Weekly US commercial crude oil stocks (excluding the Strategic Petroleum "
                        "Reserve), in millions of barrels. Rising stocks tend to push prices down.",

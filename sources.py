@@ -128,6 +128,17 @@ def fetch_fred(code, api_key):
 
 
 @st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
+def fetch_fred_first_release(code, api_key):
+    """Each date's FIRST published value (before revisions), from FRED's archive (ALFRED)."""
+    payload = _get(
+        "https://api.stlouisfed.org/fred/series/observations",
+        params={"series_id": code, "api_key": api_key, "file_type": "json", "output_type": 4,
+                "realtime_start": "1776-07-04", "realtime_end": "9999-12-31"},
+    ).json()
+    return parse_fred(payload)
+
+
+@st.cache_data(ttl=CACHE_SECONDS, show_spinner=False)
 def fetch_ons(code, dataset, topic):
     url = f"https://www.ons.gov.uk/{topic}/timeseries/{code.lower()}/{dataset.lower()}/data"
     return parse_ons(_get(url).json())
@@ -234,6 +245,7 @@ def _finish(result, series):
     if series.empty:
         raise ValueError("no data after transform")
     result["series"] = series
+    result["checked"] = pd.Timestamp.now(tz="Europe/London")
     result["first_date"] = series.index[0]
     result["latest"] = float(series.iloc[-1])
     result["latest_date"] = series.index[-1]

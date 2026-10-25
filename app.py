@@ -37,7 +37,9 @@ from sources import (SOURCE_NAMES, compute_derived, currency_strength, fetch_cal
                      fetch_news_search, fetch_policy_rates, fetch_yahoo, fetch_yahoo_batch,
                      get_fred_key, load_curve, load_indicator, load_pmi, load_us_recession_flags,
                      monthly_performance, performance_table, public_mode, source_url,
-                     fetch_coin_markets, fetch_crypto_global, fetch_fear_greed)
+                     fetch_coin_markets, fetch_crypto_global, fetch_fear_greed, fetch_fred_first_release)
+import models
+import learn
 
 APP_NAME = "HF Macro"
 HERE = Path(__file__).parent
@@ -61,6 +63,7 @@ PAGES = {
     "CAL": ("Calendar", "Upcoming US data releases and UK calendar links"),
     "LAB": ("Lab", "Correlation and lead/lag explorer, Taylor rule"),
     "PMI": ("PMI", "Purchasing managers' indices (kept on your PC)"),
+    "LEARN": ("Learn", "Lessons with live charts, case studies and quizzes"),
     "HELP": ("Help", "Every command and ticker, plus tips"),
     "LEGAL": ("Legal", "Disclaimer, terms, privacy, cookies, accessibility and contact"),
 }
@@ -600,6 +603,7 @@ def page_detail(ticker):
         f"<span class='hv' style='font-size:1.6rem'>{ui.fmt(res['latest'], ind)}</span> "
         f"{ui.change_html(ind, change)} <span class='hs'>{ui.date_label(ind, res['latest_date'])}</span>"
         f" &nbsp;{conf}{ui.info('confidence', 'Confidence') if conf else ''}", unsafe_allow_html=True)
+    b2.caption(freshness_text(ind, res))
 
     # Bloomberg-style function bar: CHART · DES (description) · DRIVERS (what moves it)
     views = ["CHART", "DES"] + (["DRIVERS"] if f and not f.get("error") else [])
@@ -996,7 +1000,8 @@ def des_view(ind, res):
         src = SOURCE_NAMES.get(ind["source"], ind["source"])
         rows += [("Source", f"<a href='{url}' target='_blank'>{ui.escape(src)} ↗</a>" if url else ui.escape(src)),
                  ("Series code", ui.escape(ind["code"])),
-                 ("History", f"{res['first_date']:%b %Y} to {res['latest_date']:%d %b %Y}")]
+                 ("History", f"{res['first_date']:%b %Y} to {res['latest_date']:%d %b %Y}"),
+                 ("Freshness", ui.escape(freshness_text(ind, res)))]
         ui.des_table(rows)
         what_moves_it(ind)
 
@@ -1033,9 +1038,291 @@ def des_view(ind, res):
             st.markdown(" ".join(f"<a class='drv' href='{ui.link(LOADED[r][0]['ticker'], view='DES')}' "
                                  f"target='_self'>{LOADED[r][0]['ticker']}</a>" for r in related),
                         unsafe_allow_html=True)
+        revisions_panel(ind)
     with st.container(border=True):
         ui.panel_title("Research & news", "LAST 30 DAYS")
         ui.headlines(search_news(news_query(ind)), limit=8, empty="News search unavailable right now.")
+    expectations_panel(ind)
+
+
+
+# ================================================================= model comparison, expectations, freshness
+
+FREQ_WORDS = {"M": "monthly", "Q": "quarterly", "D": "daily"}
+INFO_KEY = {"No change": "no change", "VAR(2)": "VAR", "Phillips curve": "Phillips curve",
+            "Average of models": "ensemble", "AR(2)": "forecast"}
+
+
+def fmt_err(value, ind):
+    """A forecast error: percentage-point units for % series."""
+    return f"{value:,.{ind['decimals']}f}" + ("pp" if ind["unit"] == "%" else ind["unit"])
+
+
+def freshness_text(ind, res):
+    """'Latest data 16 Oct 2026 · released monthly · checked 2 hours ago'"""
+    from forecast import infer_freq
+    s = res["series"]
+    freq = "D" if ui.is_daily(ind) else infer_freq(s)
+    parts = [f"Latest data {ui.date_label(ind, res['latest_date'])}",
+             f"published {FREQ_WORDS.get(freq, 'regularly')}"]
+    checked = res.get("checked")
+    if checked is not None:
+        mins = max(0, int((pd.Timestamp.now(tz="Europe/London") - checked).total_seconds() // 60))
+        parts.append("checked just now" if mins < 2 else f"checked {mins} min ago" if mins < 90
+                     else f"checked {mins // 60} hours ago")
+    return " · ".join(parts)
+
+
+def model_comparison(ind, res, f):
+    """Every model that applies, its 12-month forecast and its 10-year track record."""
+    ind_id = ind["id"]
+    with st.container(border=True):
+        ui.panel_title("Model comparison & track record", "10-YEAR BACKTEST", about="backtest")
+        with st.spinner("Testing each model on the last 10 years..."):
+            try:
+                results = models.evaluate_cached(ind_id, LOADED)
+            except Exception as exc:
+                st.caption(f"Backtest unavailable ({type(exc).__name__}).")
+                return
+        ar_end = float(f["fc"]["median"].iloc[-1])
+        for r in results:
+            if r["name"] == "AR(2)":
+                r["end"], r["forecast"] = ar_end, f["fc"]
+        ends = [r["end"] for r in results if r["name"] not in ("No change", "Average of models") and r["end"] is not None]
+        for r in results:
+            if r["name"] == "Average of models" and ends:
+                r["end"] = float(sum(ends) / len(ends))
+        naive = next((r["mae"] for r in results if r["name"] == "No change"), None)
+        scored = [r for r in results if r["mae"] is not None]
+        best = min(scored, key=lambda r: r["mae"]) if scored else None
+
+        left, right = st.columns([1.25, 1], gap="small")
+        with left:
+            rows = []
+            for r in results:
+                hit_txt = "-" if r["hit_rate"] is None else f"{r['hit_rate']:.0f}%"
+                miss_txt = "-" if r["mae"] is None else f"{r['mae']:,.{ind['decimals']}f}" + (
+                    "pp" if ind["unit"] == "%" else ind["unit"])
+                skill = "-" if (r["mae"] is None or naive in (None, 0) or r["name"] == "No change") else \
+                    f"{(1 - r['mae'] / naive) * 100:+.0f}%"
+                tag = " <span class='up'>★ best</span>" if best is r else ""
+                rows.append(
+                    f"<tr><td>{ui.escape(r['name'])}{ui.info(INFO_KEY.get(r['name'], 'forecast'), r['name'])}{tag}</td>"
+                    f"<td class='n'>{ui.fmt(r['end'], ind) if r['end'] is not None else '-'}</td>"
+                    f"<td class='n'>{miss_txt}</td>"
+                    f"<td class='n'>{hit_txt}</td>"
+                    f"<td class='n'>{skill}</td></tr>")
+            st.markdown("<table class='t'><tr><th>Model</th><th style='text-align:right'>12M forecast</th>"
+                        f"<th style='text-align:right'>Avg miss{ui.info('average miss', 'Average miss')}</th>"
+                        f"<th style='text-align:right'>Direction{ui.info('direction hit rate', 'Direction hit rate')}</th>"
+                        "<th style='text-align:right'>vs no change</th></tr>" + "".join(rows) + "</table>",
+                        unsafe_allow_html=True)
+            if best is not None and naive:
+                if best["name"] == "No change":
+                    verdict = ("No model has beaten the simple 'no change' forecast here over the last 10 years. "
+                               "That's common for market prices and a useful reminder of how hard forecasting is.")
+                else:
+                    verdict = (f"Best track record: **{best['name']}**, whose average miss was "
+                               f"{(1 - best['mae'] / naive) * 100:.0f}% smaller than just assuming no change.")
+                st.markdown(verdict)
+            st.caption("Each model is re-run at every month of the last 10 years using only the data available "
+                       "then, and compared with what actually happened (pandemic months left out). It uses "
+                       "today's revised data, so real-time accuracy would be a little worse.")
+        with right:
+            fig = go.Figure()
+            hist = ui.window(res["series"], 5)
+            if ui.is_daily(ind):
+                hist = hist.resample("MS").mean()
+            fig.add_scatter(x=hist.index, y=hist.values, mode="lines", name="Actual",
+                            line=dict(color=ui.TEXT, width=1.4))
+            colours = {"AR(2)": ui.CYAN, "VAR(2)": "#C792EA", "Phillips curve": "#5EE6C9"}
+            for r in results:
+                fc = r.get("forecast")
+                if fc is None or r["name"] not in colours:
+                    continue
+                fig.add_scatter(x=[hist.index[-1]] + list(fc.index), y=[hist.iloc[-1]] + list(fc["median"]),
+                                mode="lines", name=r["name"], line=dict(color=colours[r["name"]], dash="dot", width=2))
+            st.plotly_chart(ui.base_layout(fig, 260, unit=ind["unit"] if ind["unit"] == "%" else "", legend=True),
+                            width="stretch", config=ui.PLOT_CONFIG, key=f"models_{ind_id}")
+            ar_res = next((r["results"] for r in results if r["name"] == "AR(2)" and r["results"] is not None), None)
+            if ar_res is not None and len(ar_res):
+                with st.expander("How the AR(2) forecasts did in the past"):
+                    fig2 = go.Figure()
+                    fig2.add_scatter(x=ar_res["target"], y=ar_res["actual"], mode="lines", name="What happened",
+                                     line=dict(color=ui.TEXT, width=1.3))
+                    fig2.add_scatter(x=ar_res["target"], y=ar_res["pred"], mode="lines", name="What AR(2) forecast 12M earlier",
+                                     line=dict(color=ui.CYAN, dash="dot"))
+                    st.plotly_chart(ui.base_layout(fig2, 220, legend=True), width="stretch",
+                                    config=ui.PLOT_CONFIG, key=f"bt_{ind_id}")
+
+
+SEP_SERIES = {
+    "us_fedfunds": [("FEDTARMD", "Fed funds rate, end of year"), ("FEDTARMDLR", "Fed funds rate, longer run")],
+    "us_2y": [("FEDTARMD", "Fed funds rate, end of year")],
+    "us_cpi": [("PCECTPIMD", "PCE inflation, Q4 on Q4 (the Fed's preferred measure, usually a little below CPI)")],
+    "us_core_cpi": [("JCXFEMD", "Core PCE inflation, Q4 on Q4")],
+    "us_unemp": [("UNRATEMD", "Unemployment rate, Q4 average")],
+    "us_gdp": [("GDPC1MD", "Real GDP growth, Q4 on Q4")],
+}
+IMF_FOR = {"us_cpi": ("PCPIPCH", "USA", "inflation"), "uk_cpi": ("PCPIPCH", "GBR", "inflation"),
+           "us_gdp": ("NGDP_RPCH", "USA", "annual GDP growth"), "uk_gdp": ("NGDP_RPCH", "GBR", "annual GDP growth"),
+           "us_unemp": ("LUR", "USA", "unemployment rate"), "uk_unemp": ("LUR", "GBR", "unemployment rate")}
+MARKET_FOR = {"us_fedfunds", "us_2y", "us_cpi", "us_core_cpi", "us_10y"}
+
+
+def latest_fred(code):
+    s = fetch_fred(code, get_fred_key())
+    return s.dropna()
+
+
+def expectations_panel(ind):
+    """What markets, the Fed and the IMF expect, next to the site's own models."""
+    ind_id = ind["id"]
+    if ind_id not in SEP_SERIES and ind_id not in IMF_FOR and ind_id not in MARKET_FOR:
+        return
+    with st.container(border=True):
+        ui.panel_title("What others expect", "MARKETS · FED · IMF", about="market-implied")
+        cols = st.columns(3, gap="small")
+        with cols[0]:
+            st.markdown("**Markets**")
+            shown = False
+            if ind_id in ("us_fedfunds", "us_2y", "us_10y"):
+                try:
+                    ys = {k: float(latest_fred(c).iloc[-1]) for k, c in
+                          (("3M", "DGS3MO"), ("6M", "DGS6MO"), ("1Y", "DGS1"), ("2Y", "DGS2"))}
+                    path = models.implied_path(ys)
+                    ui.des_table([(k, f"{v:.2f}%") for k, v in path.items()] +
+                                 [("Fed funds now", ui.fmt(LOADED["us_fedfunds"][1]["latest"], LOADED["us_fedfunds"][0])
+                                   if "us_fedfunds" in LOADED and LOADED["us_fedfunds"][1]["latest"] is not None else "-")])
+                    st.caption("Short-term interest rates the Treasury market is pricing for the future (forward "
+                               "rates from 3-month to 2-year yields). Approximate: they include a small term "
+                               "premium " + "(see the (i)).")
+                    st.markdown(ui.info("forward rate", "Forward rate") + ui.info("term premium", "Term premium"),
+                                unsafe_allow_html=True)
+                    shown = True
+                except Exception:
+                    st.caption("Treasury yields unavailable right now.")
+            if ind_id in ("us_cpi", "us_core_cpi"):
+                rows = [(LOADED[i][0]["name"], ui.fmt(LOADED[i][1]["latest"], LOADED[i][0]))
+                        for i in ("us_be5", "us_breakeven", "us_5y5y") if i in LOADED and LOADED[i][1]["latest"] is not None]
+                if rows:
+                    ui.des_table(rows)
+                    st.caption("Average inflation the bond market expects (from inflation-protected Treasuries). "
+                               "These measure CPI inflation.")
+                    shown = True
+            if not shown:
+                st.caption("No market measure for this one.")
+        with cols[1]:
+            st.markdown("**The Fed (latest projections)**")
+            if ind_id in SEP_SERIES and get_fred_key():
+                rows = []
+                for code, label in SEP_SERIES[ind_id]:
+                    try:
+                        s = latest_fred(code)
+                        if code.endswith("LR"):
+                            rows.append((label, f"{s.iloc[-1]:.1f}%"))
+                        else:
+                            rows += [(f"{label} · {d:%Y}", f"{v:.1f}%") for d, v in s.items()
+                                     if d.year >= pd.Timestamp.now().year]
+                    except Exception:
+                        continue
+                if rows:
+                    ui.des_table(rows)
+                    st.markdown("Median of Fed officials' projections " + ui.info("SEP", "SEP"), unsafe_allow_html=True)
+                else:
+                    st.caption("Fed projections unavailable right now.")
+            else:
+                st.caption("The Fed doesn't publish a projection for this.")
+        with cols[2]:
+            st.markdown("**IMF (World Economic Outlook)**")
+            spec = IMF_FOR.get(ind_id)
+            if spec:
+                code, country, label = spec
+                year = pd.Timestamp.now().year
+                try:
+                    table = fetch_imf(code, tuple(range(year - 1, year + 3)))
+                    if country in table.index and "projections" in table.attrs.get("source", ""):
+                        row = table.loc[country]
+                        ui.des_table([(f"{label.capitalize()} · {y}", f"{float(v):.1f}%")
+                                      for y, v in row.items() if not pd.isna(v)])
+                        st.caption("Annual figures (calendar-year averages), so not directly comparable with "
+                                   "monthly or quarterly readings.")
+                    else:
+                        st.caption("IMF projections unavailable right now.")
+                except Exception:
+                    st.caption("IMF projections unavailable right now.")
+            else:
+                st.caption("No IMF projection for this.")
+
+
+def revisions_panel(ind):
+    """First published estimate vs today's figure (US GDP)."""
+    if ind["id"] != "us_gdp" or not get_fred_key():
+        return
+    ui.panel_title("First estimate vs latest", "REVISIONS", about="first estimate")
+    try:
+        first = fetch_fred_first_release(ind["code"], get_fred_key())
+        latest = LOADED[ind["id"]][1]["series"]
+        both = pd.concat({"First estimate": first, "Latest": latest}, axis=1).dropna()
+        both = both[both.index >= both.index[-1] - pd.DateOffset(years=8)]
+        if both.empty:
+            raise ValueError("no overlap")
+        fig = go.Figure()
+        fig.add_bar(x=both.index, y=both["First estimate"], name="First estimate", marker_color="#55606C")
+        fig.add_bar(x=both.index, y=both["Latest"], name="Latest", marker_color=ui.CYAN)
+        fig.update_layout(barmode="group")
+        st.plotly_chart(ui.base_layout(fig, 230, unit="%", legend=True), width="stretch",
+                        config=ui.PLOT_CONFIG, key="rev_us_gdp")
+        avg = (both["Latest"] - both["First estimate"]).abs().mean()
+        st.caption(f"Over these years the first GDP estimate was revised by {avg:.1f}pp on average. "
+                   "Source: FRED/ALFRED archive.")
+    except Exception as exc:
+        st.caption(f"Revision history unavailable right now ({type(exc).__name__}).")
+
+
+def forecast_scorecard():
+    """Every forecast's 10-year track record against 'no change'."""
+    st.markdown("How good is each forecast? Every model is tested on the last 10 years "
+                + ui.info("backtest", "Backtest"), unsafe_allow_html=True)
+    rows = []
+    with st.spinner("Backtesting every forecast (first time takes a minute)..."):
+        for ind_id in FORECASTS:
+            if FORECASTS[ind_id].get("error"):
+                continue
+            ind = LOADED[ind_id][0]
+            try:
+                sc = models.evaluate_cached(ind_id, LOADED, simple=True)
+            except Exception:
+                continue
+            ar_, nv = sc.get("AR(2)"), sc.get("No change")
+            if not ar_ or not nv or not nv["mae"]:
+                continue
+            rows.append({"Indicator": f"{ind['ticker']} · {ind['name']}", "link": ui.link(ind["ticker"], view="DRIVERS"),
+                         "skill": (1 - ar_["mae"] / nv["mae"]) * 100, "hit": ar_["hit_rate"],
+                         "miss": ar_["mae"], "naive": nv["mae"], "ind": ind})
+    if not rows:
+        st.caption("No forecasts to test right now.")
+        return
+    rows.sort(key=lambda r: -r["skill"])
+    body = []
+    for r in rows:
+        cls = "up" if r["skill"] > 0 else "dn"
+        hit_txt = "-" if r["hit"] is None else f"{r['hit']:.0f}%"
+        body.append(f"<tr><td><a href='{r['link']}' target='_self'>{ui.escape(r['Indicator'])}</a></td>"
+                    f"<td class='n'>{fmt_err(r['miss'], r['ind'])}</td><td class='n'>{fmt_err(r['naive'], r['ind'])}</td>"
+                    f"<td class='n'><span class='{cls}'>{r['skill']:+.0f}%</span></td>"
+                    f"<td class='n'>{hit_txt}</td></tr>")
+    beat = sum(1 for r in rows if r["skill"] > 0)
+    st.markdown(f"**The main AR(2) model beat 'no change' for {beat} of {len(rows)} indicators** over the last "
+                "10 years. It tends to do better on slow-moving economic data (inflation, unemployment, rates) "
+                "than on market prices, which are close to unpredictable.")
+    st.markdown("<table class='t'><tr><th>Indicator</th><th style='text-align:right'>AR(2) avg miss</th>"
+                "<th style='text-align:right'>No-change avg miss</th>"
+                f"<th style='text-align:right'>Improvement{ui.info('no change', 'No change')}</th>"
+                f"<th style='text-align:right'>Direction right{ui.info('direction hit rate', 'Direction hit rate')}</th></tr>"
+                + "".join(body) + "</table>", unsafe_allow_html=True)
+    st.caption("Click any row to open its drivers screen, where inflation, unemployment and interest rates are "
+               "also compared with the VAR and Phillips curve models. " + ui.DISCLAIMER)
 
 
 def drivers_view(ind, res, f):
@@ -1094,6 +1381,8 @@ def drivers_view(ind, res, f):
                 st.markdown(f"<div class='hs'>History check (10Y, 6-month moves): "
                             f"{'-' if corr is None else f'{corr:+.2f}'} · {ui.escape(check)}"
                             f"{ui.info('correlation', 'Correlation')}</div>", unsafe_allow_html=True)
+    model_comparison(ind, res, f)
+    expectations_panel(ind)
 
 
 def biggest_moves(ind, series, news):
@@ -1696,8 +1985,10 @@ def page_calendar():
 
 
 def page_lab():
-    tab0, tab1, tab2, tab3 = st.tabs(["Outlook board", "Correlation & lead/lag", "Taylor rule",
-                                      "Macro momentum" if PUBLIC else "Risk appetite"])
+    tab0, tab_sc, tab1, tab2, tab3 = st.tabs(["Outlook board", "Forecast scorecard", "Correlation & lead/lag",
+                                              "Taylor rule", "Macro momentum" if PUBLIC else "Risk appetite"])
+    with tab_sc:
+        forecast_scorecard()
     with tab0:
         st.markdown("Every forecast in one place, highest confidence first "
                     + ui.info("outlook board", "Outlook board"), unsafe_allow_html=True)
@@ -1874,6 +2165,188 @@ def page_help():
     st.dataframe(pd.DataFrame(EVENTS, columns=["Date", "Event"]), hide_index=True)
 
 
+
+# ================================================================= LEARN
+
+def now_sentence(key):
+    """One line about what today's data shows, for each lesson."""
+    def get(i):
+        return LOADED[i] if i in LOADED and LOADED[i][1]["latest"] is not None else (None, None)
+    try:
+        if key == "payrolls":
+            ind, res = get("us_payrolls")
+            u_ind, u_res = get("us_unemp")
+            if ind:
+                return (f"US payrolls changed by {ui.fmt(res['latest'], ind)} in the latest month "
+                        f"({ui.date_label(ind, res['latest_date'])}), and unemployment is "
+                        f"{ui.fmt(u_res['latest'], u_ind) if u_ind else 'n/a'}.")
+        if key == "uk_inflation":
+            ind, res = get("uk_cpi")
+            b_ind, b_res = get("uk_bankrate")
+            if ind and b_ind:
+                gap = res["latest"] - 2
+                real = b_res["latest"] - res["latest"]
+                return (f"UK CPI inflation is {ui.fmt(res['latest'], ind)}, {abs(gap):.1f}pp "
+                        f"{'above' if gap > 0 else 'below'} the 2% target. Bank Rate is "
+                        f"{ui.fmt(b_res['latest'], b_ind)}, so the real rate is {real:+.1f}%: policy is "
+                        f"{'restrictive (holding the economy back)' if real > 1 else 'roughly neutral' if real > -0.5 else 'still loose'}.")
+        if key == "curve":
+            ind, res = get("us_3m10y")
+            if ind:
+                p = recession_probability(res["series"]).iloc[-1]
+                return (f"The US 10-year minus 3-month spread is {res['latest']:+.2f}pp "
+                        f"({'inverted' if res['latest'] < 0 else 'not inverted'}). The NY Fed model gives a "
+                        f"{p:.0f}% chance of a US recession in 12 months.")
+        if key == "fx":
+            ind, res = get("gbpusd")
+            d_ind, d_res = get("uk_us_rates")
+            if ind:
+                return (f"GBP/USD is {ui.fmt(res['latest'], ind)}" + (
+                    f", and UK rates are {d_res['latest']:+.2f}pp versus US rates." if d_ind else "."))
+        if key == "bonds":
+            ind, res = get("us_2y")
+            f_ind, f_res = get("us_fedfunds")
+            if ind and f_ind:
+                gap = res["latest"] - f_res["latest"]
+                return (f"The 2-year Treasury yield is {ui.fmt(res['latest'], ind)} versus a Fed funds rate of "
+                        f"{ui.fmt(f_res['latest'], f_ind)}: markets are pricing "
+                        f"{'rate cuts' if gap < -0.25 else 'rate rises' if gap > 0.25 else 'roughly steady rates'}.")
+        if key == "oil":
+            ind, res = get("brent")
+            if ind:
+                s = res["series"]
+                yr = s.asof(s.index[-1] - pd.DateOffset(years=1))
+                return (f"Brent crude is {ui.fmt(res['latest'], ind)}, "
+                        f"{(res['latest'] / yr - 1) * 100:+.0f}% on a year ago.")
+        if key == "scorecard":
+            return "Open LAB → Forecast scorecard to see which of HF Macro's forecasts actually beat 'no change'."
+    except Exception:
+        return None
+    return None
+
+
+def page_learn():
+    lessons = {l["key"]: l for l in learn.LESSONS}
+    cases = {c["key"]: c for c in learn.CASES}
+    sel = st.query_params.get("l")
+    if sel not in lessons and sel not in cases:
+        st.markdown("### Learn macro with live data")
+        st.markdown("Short lessons that use HF Macro's real charts, in the order of Bloomberg Market Concepts' "
+                    "economics and currencies modules. Each ends with a quick quiz.")
+        cols = st.columns(3, gap="small")
+        for n, l in enumerate(learn.LESSONS):
+            with cols[n % 3], st.container(border=True):
+                st.markdown(f"<div class='des-head'><a href='{ui.page_link('LEARN', l=l['key'])}' target='_self'>"
+                            f"{ui.escape(l['title'])}</a></div><div class='hs'>{l['minutes']} min read</div>"
+                            f"<div class='des-note' style='color:#AEB8C2'>{ui.escape(l['summary'])}</div>",
+                            unsafe_allow_html=True)
+        st.markdown("### Case studies")
+        cols = st.columns(4, gap="small")
+        for n, c in enumerate(learn.CASES):
+            with cols[n % 4], st.container(border=True):
+                st.markdown(f"<div class='des-head'><a href='{ui.page_link('LEARN', l=c['key'])}' target='_self'>"
+                            f"{ui.escape(c['title'])}</a></div>", unsafe_allow_html=True)
+        st.caption("Educational content, not financial advice.")
+        return
+
+    st.markdown(f"<a class='drv' href='{ui.page_link('LEARN')}' target='_self'>◄ ALL LESSONS</a>",
+                unsafe_allow_html=True)
+    if sel in lessons:
+        l = lessons[sel]
+        region = "UK" if sel in ("inflation",) else None
+        st.markdown(f"## {l['title'][3:]}")
+        st.caption(f"{l['minutes']} min read · {l['summary']}")
+        for kind, *rest in l["parts"]:
+            if kind == "text":
+                st.markdown(rest[0])
+            elif kind == "chart":
+                ids, years, caption = rest
+                ids = [i for i in ids if i in LOADED and LOADED[i][1]["series"] is not None]
+                if not ids:
+                    continue
+                with st.container(border=True):
+                    main_ind, main_res = LOADED[ids[0]]
+                    compare = [(LOADED[i][0], ui.window(LOADED[i][1]["series"], years)) for i in ids[1:]]
+                    shade = "US recessions" if main_ind["region"] in ("US", "Markets", "FX") else \
+                        "UK recessions" if main_ind["region"] == "UK" else None
+                    shades = [(shade, *SHADE_PERIODS[shade])] if shade in SHADE_PERIODS else []
+                    fig = ui.build_figure(main_ind, ui.window(main_res["series"], years), height=300,
+                                          compare=compare, shades=shades)
+                    st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"learn_{sel}_{ids[0]}")
+                    st.markdown(" ".join(f"<a class='drv' href='{ui.link(LOADED[i][0]['ticker'], view='DES')}' "
+                                         f"target='_self'>{LOADED[i][0]['ticker']} ↗</a>" for i in ids)
+                                + f" <span class='hs'>{ui.escape(caption)}</span>", unsafe_allow_html=True)
+            elif kind == "now":
+                text = now_sentence(rest[0])
+                if text:
+                    st.markdown(f"<div class='disc' style='border-color:{ui.CYAN};background:rgba(63,182,255,.08);"
+                                f"color:#D9DEE3'><b>RIGHT NOW:</b> {ui.autolink(text, region=region)}</div>",
+                                unsafe_allow_html=True)
+        quiz(sel, l["quiz"])
+        keys = list(lessons)
+        i = keys.index(sel)
+        nav = []
+        if i > 0:
+            nav.append(f"<a class='drv' href='{ui.page_link('LEARN', l=keys[i - 1])}' target='_self'>◄ PREVIOUS</a>")
+        if i < len(keys) - 1:
+            nav.append(f"<a class='drv' href='{ui.page_link('LEARN', l=keys[i + 1])}' target='_self'>NEXT LESSON ►</a>")
+        st.markdown(" ".join(nav), unsafe_allow_html=True)
+    else:
+        c = cases[sel]
+        st.markdown(f"## {c['title']}")
+        st.markdown(c["story"])
+        start, end = pd.Timestamp(c["start"]), pd.Timestamp(c["end"])
+        ids = [i for i in c["ids"] if i in LOADED and LOADED[i][1]["series"] is not None]
+        cols = st.columns(2, gap="small")
+        for n, i in enumerate(ids):
+            ind, res = LOADED[i]
+            s = res["series"][(res["series"].index >= start) & (res["series"].index <= end)]
+            if s.empty:
+                continue
+            with cols[n % 2], st.container(border=True):
+                ui.panel_title(ind["name"], ind["ticker"])
+                fig = ui.build_figure(ind, s, height=230)
+                for d, label in c["events"]:
+                    fig.add_vline(x=pd.Timestamp(d), line=dict(color=ui.ACCENT, dash="dot", width=1))
+                    fig.add_annotation(x=pd.Timestamp(d), y=1, yref="paper", text=label, showarrow=False,
+                                       textangle=-90, xanchor="right", yanchor="top",
+                                       font=dict(size=9, color="#E8A33D"))
+                st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"case_{sel}_{i}")
+        st.caption("Red dotted lines mark the key events. " + ui.DISCLAIMER)
+
+
+def quiz(key, questions):
+    with st.container(border=True):
+        ui.panel_title("Quick quiz", f"{len(questions)} QUESTIONS")
+        score = 0
+        answered = 0
+        for n, (q, options, correct, why) in enumerate(questions):
+            choice = st.radio(f"{n + 1}. {q}", options, index=None, key=f"quiz_{key}_{n}")
+            if choice is not None:
+                answered += 1
+                if options.index(choice) == correct:
+                    score += 1
+                    st.markdown(f"<span class='up'>✔ Correct.</span> {ui.escape(why)}", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<span class='dn'>✘ Not quite.</span> The answer is "
+                                f"<b>{ui.escape(options[correct])}</b>. {ui.escape(why)}", unsafe_allow_html=True)
+        if answered == len(questions):
+            st.markdown(f"**Score: {score} / {len(questions)}**")
+
+
+def page_guide(page):
+    tips = learn.GUIDES.get(page)
+    if not tips:
+        return
+    with st.expander("📘 How to read this page"):
+        st.markdown("\n".join(f"- {ui.autolink(t)}" for t in tips), unsafe_allow_html=True)
+        lesson = learn.GUIDE_LESSON.get(page)
+        if lesson:
+            title = next(l["title"] for l in learn.LESSONS if l["key"] == lesson)
+            st.markdown(f"Learn more: <a href='{ui.page_link('LEARN', l=lesson)}' target='_self'>{ui.escape(title)}</a>",
+                        unsafe_allow_html=True)
+
+
 def page_legal():
     keys = list(legal.SECTIONS)
     start = st.query_params.get("s") if st.query_params.get("s") in keys else "disclaimer"
@@ -1902,6 +2375,8 @@ def page_legal():
 
 # ================================================================= router
 
+if not TICKER and not CCY:
+    page_guide(PAGE)
 if TICKER:
     page_detail(TICKER)
 elif CCY:
@@ -1942,6 +2417,8 @@ elif PAGE == "HELP":
     page_help()
 elif PAGE == "LEGAL":
     page_legal()
+elif PAGE == "LEARN":
+    page_learn()
 
 ui.status_bar(SOURCE_HEALTH, f"{sum(1 for _, r in LOADED.values() if r['error'] is None)}/"
                              f"{len(LOADED)} SERIES · CACHE 6H" + (" · PUBLIC EDITION" if PUBLIC else ""))

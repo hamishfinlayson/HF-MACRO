@@ -20,7 +20,9 @@ Hamish Finlayson's macro terminal: a terminal-style dashboard for UK and US macr
 | `CAL` | Calendar | Upcoming US releases, UK/Europe calendar links |
 | `LAB` | Lab | Correlation and lead/lag explorer, Taylor rule, risk appetite breakdown |
 | `PMI` | PMI | PMI headline figures (kept on your PC) |
+| `LEARN` | Learn | 7 lessons built on live charts, 4 case studies (2008, Covid, 2022 inflation, mini-budget), quizzes |
 | `HELP` | Help | Every code and ticker, data status, shading options |
+| `LEGAL` | Legal | Disclaimer, terms, privacy, cookies, accessibility, about & contact |
 
 ## Getting around
 - **Command line** at the top: type a ticker (`UKCPI`, `GBPUSD`, `BRENT`), a page code (`WEI`, `CTRY`), or any word (*inflation*, *gilt*, *yen*).
@@ -76,6 +78,15 @@ Open `indicators.py`. Each indicator is one `dict(...)` entry with a `ticker` yo
 - **Recessions**: US = official NBER dates. UK = 2+ quarters of falling GDP.
 - **Risk appetite (0-100)**: VIX, high-yield spreads, copper/gold ratio, dollar index and the S&P 500's gap to its 200-day average, each compared with its last 3 years and averaged.
 - **Currency strength**: % change in each currency's value against USD, GBP or EUR over 1D to 1Y.
+
+- **Model comparison (DRIVERS screens)**: inflation, unemployment and policy rates are also forecast with a
+  VAR(2) (the three forecast together), inflation with a Phillips curve, plus the average of all models.
+- **Backtesting**: every model is re-run at each month of the last 10 years using only data available then
+  and compared with what happened (average miss, direction hit rate, improvement on 'no change').
+  LAB > Forecast scorecard shows this for every forecast. Code: `models.py`.
+- **What others expect**: market-implied rates (forward rates from 3m-2y Treasury yields), breakeven
+  inflation, the Fed's latest projections (SEP medians) and IMF WEO projections.
+- **Revisions**: US GDP's first estimate vs latest (FRED's ALFRED archive).
 
 Forecasts and models are for education only and are not financial advice.
 
