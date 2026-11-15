@@ -125,6 +125,7 @@ def countries_data(imf_tables, names, year):
     return {"countries": out} if len(out) >= 3 else None
 
 
+
 def calendar_data(cal, now=None):
     """cal: the FRED release calendar (release_name, date). Most US releases come out at 8:30am New York time
     (13:30 UK), so that's the time used for the countdown."""

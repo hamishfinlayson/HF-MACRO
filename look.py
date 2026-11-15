@@ -19,7 +19,7 @@ from pathlib import Path
 import look_assets as A
 
 HERE = Path(__file__).parent
-VERSION = "43.1"
+VERSION = "43.2"
 CACHE = HERE / "data" / "cache" / "look_cache.json"
 FONTS_URL = ("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800"
              "&family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap")

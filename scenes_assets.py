@@ -173,7 +173,7 @@ function globe() {
     const lat = Math.asin(y) * 180 / Math.PI, lon = Math.atan2(z, x) * 180 / Math.PI, land = LAND.some(P => inPoly(lon, lat, P)); if (land || i % 9 === 0) pts.push([x, y, z, land]); }
   let rot = 0, trot = 0, tilt = .3, cur = 0;
   function pick(i) { cur = i; const c = C[i]; trot = -c.lon * Math.PI / 180 + Math.PI / 2; ctl.querySelectorAll('button').forEach((b, j) => b.classList.toggle('on', j === i));
-    side.innerHTML = `<div class="h">${c.code}</div><div style="font-size:24px;color:var(--hi);margin-bottom:18px">${c.name}</div>` + c.k.map(([n, v, u]) => `<div class="h">${n}</div><div class="big" data-v="${v}" data-u="${u}">0</div>`).join('');
+    side.innerHTML = `<div class="h">${c.code}</div><div style="font-size:24px;color:var(--hi);margin-bottom:18px">${c.name}</div>` + c.k.map(([n, v, u]) => `<div class="h">${n}</div><div class="big" data-v="${v}" data-u="${u}">0</div>`).join('') + (c.k.length ? '' : '<div class="h" style="line-height:1.8">IMF figures appear here once the Country page has downloaded them</div>');
     side.querySelectorAll('[data-v]').forEach((el, j) => { const to = +el.dataset.v, t0 = performance.now() + 600 + j * 120; (function f(t) { const k = ease(cl((t - t0) / 1400)); el.textContent = (to * k).toFixed(1) + el.dataset.u; if (k < 1) requestAnimationFrame(f); })(t0); }); }
   ctl.onclick = e => { if (e.target.dataset.i) pick(+e.target.dataset.i); }; pick(0);
   let auto = performance.now(); loop(now => { if (now - auto > 6000) { auto = now; pick((cur + 1) % C.length); }

@@ -191,7 +191,7 @@ import look
 import contextlib
 import importlib
 import scenes
-if getattr(look, "VERSION", None) != "43.1" or not hasattr(workshop, "explain") or not hasattr(scenes, "heartbeat_data"):   # a running app picks up updated files
+if getattr(look, "VERSION", None) != "43.2" or not hasattr(workshop, "explain") or not hasattr(scenes, "heartbeat_data"):   # a running app picks up updated files
     import look_assets, scenes_assets
     importlib.reload(look_assets)
     look = importlib.reload(look)
@@ -1553,7 +1553,32 @@ def tv_chart_picker(key, default=0):
     ui.tv_advanced_chart(TV_CHART_CHOICES[labels.index(choice)][0], height=560)
 
 
+def world_day():
+    """The trading day around the world: latest daily move of each stock market (PC: Yahoo; website: the indices it can show)."""
+    data = None
+    if not PUBLIC:
+        try:
+            tick = tuple(t for items in EQUITY_MONITOR.values() for t, _ in items)
+            perf = pd.concat([performance_table(fetch_yahoo_batch(tick), items) for items in EQUITY_MONITOR.values()], ignore_index=True)
+            data = scenes.markets_data(perf)
+        except Exception:
+            data = None
+    if data is None:                         # fall back to the indices already loaded (works on the website too)
+        rows = []
+        for ind_id, tk in (("sp500", "^GSPC"), ("nasdaq", "^IXIC"), ("ftse100", "^FTSE"), ("ftse250", "^FTMC"), ("dax", "^GDAXI"),
+                           ("stoxx50", "^STOXX50E"), ("nikkei", "^N225")):
+            if ind_id in LOADED and LOADED[ind_id][1]["series"] is not None and len(LOADED[ind_id][1]["series"]) > 2:
+                sr = LOADED[ind_id][1]["series"].dropna()
+                rows.append({"Ticker": tk, "Name": LOADED[ind_id][0]["name"], "1D %": (float(sr.iloc[-1]) / float(sr.iloc[-2]) - 1) * 100})
+        data = scenes.markets_data(pd.DataFrame(rows)) if rows else None
+    if data:
+        ui.section("The trading day around the world", "each market lights up as its session opens · glow = latest daily move", code="★")
+        show_scene("markets", data, 560, "Latest daily moves (may be delayed). The red band is daylight sweeping west: Asia opens first, "
+                   "then Europe, then the Americas. Ranked on the right.")
+
+
 def page_wei():
+    world_day()
     st.markdown("World Equity Monitor · prices from TradingView (may be delayed) " + ui.info("TradingView", "TradingView"),
                 unsafe_allow_html=True)
     left, right = st.columns([1, 1.5], gap="small")
@@ -1563,15 +1588,6 @@ def page_wei():
     with right, st.container(border=True):
         ui.panel_title("Chart", "TRADINGVIEW · MAY BE DELAYED")
         tv_chart_picker("wei_chart", 0)
-    if not PUBLIC:
-        try:
-            _tick = tuple(t for items in EQUITY_MONITOR.values() for t, _ in items)
-            _perf = pd.concat([performance_table(fetch_yahoo_batch(_tick), items) for items in EQUITY_MONITOR.values()], ignore_index=True)
-            ui.section("The trading day around the world", "each market lights up as its session opens · glow = latest daily move", code="★")
-            show_scene("markets", scenes.markets_data(_perf), 560, "Latest daily moves from Yahoo Finance (may be delayed). The red band is daylight sweeping "
-                       "west: Asia opens first, then Europe, then the Americas. Ranked on the right.")
-        except Exception:
-            pass
     equity_ids = ["ftse100", "ftse250", "sp500", "nasdaq", "dax", "stoxx50", "nikkei"]
     ui.section("Equity outlook", "12-month forecasts and what the drivers say", code="02",
                about="market forecast")
@@ -1873,17 +1889,27 @@ def page_global():
         st.info(f"BIS policy rates unavailable right now ({type(exc).__name__}).")
 
 
-def country_globe(tables):
-    """The spinning globe, from the IMF tables the Country page has already downloaded."""
+def country_globe(tables=None):
+    """The spinning globe. Shown at once from the last saved IMF figures (the IMF site can be slow), and the saved
+    figures are refreshed whenever the Country page downloads new ones."""
     try:
         yr = datetime.now().year
-        show_scene("globe", scenes.countries_data(tables, {k: v["name"] for k, v in COUNTRIES.items()}, yr), 560,
+        names = {k: v["name"] for k, v in COUNTRIES.items()}
+        if tables:
+            fresh = scenes.countries_data(tables, names, yr)
+            if fresh:
+                look.remember("globe", fresh)
+            return
+        data = look.recall("globe") or {"countries": [{"code": iso, "name": names[iso], "lat": la, "lon": lo, "k": []}
+                                                       for iso, (la, lo) in scenes.COUNTRY_PLACES.items() if iso in names]}
+        show_scene("globe", data, 560,
                    f"IMF World Economic Outlook figures for {yr} (forecasts for the current year). Click a country, or let the globe turn by itself.")
     except Exception:
         pass
 
 
 def page_country():
+    country_globe()
     codes = list(COUNTRIES)
     iso = st.selectbox("Country", codes, index=codes.index("GBR"),
                        format_func=lambda c: f"{c} · {COUNTRIES[c]['name']}", key="ctry")
@@ -2051,13 +2077,6 @@ def page_news():
 
 
 def page_fx():
-    left, right = st.columns([1, 1.6], gap="small")
-    with left, st.container(border=True):
-        ui.panel_title("GBP snapshot", "1 GBP BUYS", about="ECB reference rates")
-        fx_snapshot()
-    with right, st.container(border=True):
-        ui.panel_title("Currency strength heatmap", "% CHANGE", about="currency strength")
-        strength_heatmap()
     try:
         _str = currency_strength(fetch_fx_history("USD", tuple(HEATMAP_CURRENCIES)))
         ui.section("Currency gravity", "each currency is a planet sized and placed by its strength against the dollar · switch the period", code="★")
@@ -2065,6 +2084,13 @@ def page_fx():
                    "float up and grow; the dotted thread joins the strongest and the weakest.")
     except Exception:
         pass
+    left, right = st.columns([1, 1.6], gap="small")
+    with left, st.container(border=True):
+        ui.panel_title("GBP snapshot", "1 GBP BUYS", about="ECB reference rates")
+        fx_snapshot()
+    with right, st.container(border=True):
+        ui.panel_title("Currency strength heatmap", "% CHANGE", about="currency strength")
+        strength_heatmap()
     ui.section("Winners & losers", "strongest and weakest currencies", code="FX", about="currency strength")
     with st.container(border=True):
         c1, c2 = st.columns([2, 1])
@@ -6778,6 +6804,7 @@ elif PAGE == "UK":
 elif PAGE == "EA":
     region_page("EA", "The euro area economy (ECB data).")
 elif PAGE == "MKT":
+    world_day()
     region_page("Markets", "Key indices, volatility and commodities with full history.")
     market_web_section()
 elif PAGE == "WEI":
