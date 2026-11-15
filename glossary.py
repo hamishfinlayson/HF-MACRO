@@ -7,6 +7,26 @@ To add one, just add a line. Keep it short: what it is, then why it matters.
 """
 
 TERMS = {
+    # ---- stats check (v38)
+    "p-value": "If there were really NO edge, how often would luck alone give a result at least this good? A p-value "
+               "of 0.03 means 3% of the time. Below 0.05 (5%) we call it 'statistically significant'. It is NOT the "
+               "chance the model works.",
+    "confidence interval": "A range that probably contains the true value. A 95% interval of +1% to +5% means: "
+                           "based on the data, the real average is very likely somewhere in there. If a range for "
+                           "'model minus S&P' includes 0, there's no evidence the model beats the S&P.",
+    "paired t-test": "Compares two things measured over the SAME rounds (the model and the S&P in the same 4 weeks). "
+                     "It tests whether the average difference is really different from zero, and is fairer than "
+                     "comparing two separate averages because each round's market mood cancels out.",
+    "independent samples t-test": "Compares the average of two separate groups, e.g. returns when a signal was ON "
+                                  "vs when it was OFF (Welch's version, which doesn't assume both groups wobble the same).",
+    "correlation": "How closely two things move together, from -1 to +1 (r). Above 0 = they tend to rise together. "
+                   "Rough guide: under 0.1 very weak, 0.1-0.3 weak, 0.3-0.5 moderate, above 0.5 strong. For trading "
+                   "signals even 0.05-0.1 can matter. Correlation doesn't prove one causes the other.",
+    "Type I error": "Saying something works when it was really luck (a false alarm). The risk: trading a dud. Test "
+                    "20 useless ideas at 5% and about 1 will 'pass' by chance, which is why HF Macro counts every idea.",
+    "Type II error": "Saying something doesn't work when it really does (a miss). The risk: binning a good idea. It "
+                     "happens when there's too little data to spot a small edge.",
+    "significance level": "The cut-off for calling a result significant. HF Macro uses 5%: a p-value below 0.05.",
     # ---- forecasting and models
     "backtest": "Testing a model on the past: at each date in the last 10 years it's re-run using only the "
                 "data that existed then, and its forecast is compared with what actually happened. It shows "

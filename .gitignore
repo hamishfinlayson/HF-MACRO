@@ -7,3 +7,6 @@ data/watchlist.json
 __pycache__/
 *.pyc
 .venv/
+
+data/cache/
+data/predictions.csv

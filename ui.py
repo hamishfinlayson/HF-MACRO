@@ -22,17 +22,17 @@ from reference import CURRENCIES, KEYWORDS
 DATA = {"loaded": {}, "forecasts": {}, "go_to": None, "consent": None, "set_consent": None}
 
 # ---------------------------------------------------------------- palette
-BG, PANEL, PANEL_2, BORDER = "#000000", "#0A0D11", "#11161C", "#1C232B"
-TEXT, MUTED, DIM = "#D9DEE3", "#8A96A3", "#55606C"
-ACCENT = "#E8212B"            # HF Macro red
-CYAN = "#3FB6FF"
-UP, DOWN = "#2ECC71", "#FF6B6B"
-GRID = "#12171D"
-SERIES_COLOURS = [CYAN, "#C792EA", "#5EE6C9"]
-MONO = "'IBM Plex Mono', Consolas, 'Cascadia Mono', Menlo, monospace"
-SANS = "'IBM Plex Sans Condensed', 'IBM Plex Sans', 'Arial Narrow', 'Segoe UI', Roboto, Arial, sans-serif"
-FONTS_URL = ("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600"
-             "&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap")
+BG, PANEL, PANEL_2, BORDER = "#050506", "#09090B", "#0F0F12", "#1A191E"     # v42: near-black with hairlines
+TEXT, MUTED, DIM = "#CFCBC7", "#9A969D", "#6F6C72"
+ACCENT = "#FF2A2A"            # HF Macro red
+CYAN = "#57D3F2"
+UP, DOWN = "#3FD68A", "#FF5C6C"
+GRID = "#141317"
+SERIES_COLOURS = [CYAN, "#E05BD8", "#F2C94C"]
+MONO = "'JetBrains Mono', Consolas, 'Cascadia Mono', Menlo, monospace"
+SANS = "'Inter', 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif"
+FONTS_URL = ("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800"
+             "&family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap")
 
 PLOT_CONFIG = {
     "displaylogo": False, "scrollZoom": True, "displayModeBar": True,
@@ -216,6 +216,11 @@ table.des td.v {{ color: {TEXT}; font-family: {MONO}; }}
 code {{ color: {ACCENT} !important; background: {PANEL_2} !important; border-radius: 1px; }}
 </style>
 """, unsafe_allow_html=True)
+    try:
+        import look
+        st.markdown(look.css(st.session_state.get("anim", True)), unsafe_allow_html=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- helpers
@@ -540,18 +545,18 @@ def base_layout(fig, height, unit="", log=False, legend=False, x_range=None, sli
     fig.update_layout(
         template="plotly_dark", height=height, margin=dict(l=4, r=4, t=6, b=4),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family=MONO, size=10.5, color="#AEB8C2"),
+        font=dict(family=MONO, size=10.5, color="#9A969D"),
         hovermode="x", dragmode=dragmode, showlegend=legend, bargap=0.12,
         uirevision=uirevision,
         legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10), bgcolor="rgba(0,0,0,0)"),
         hoverlabel=dict(bgcolor=PANEL_2, bordercolor=ACCENT, font=dict(family=MONO, size=11)),
-        newshape=dict(line=dict(color=ACCENT, width=2), fillcolor="rgba(232,33,43,0.12)"),
+        newshape=dict(line=dict(color=ACCENT, width=2), fillcolor="rgba(255,42,42,0.12)"),
         yaxis=dict(ticksuffix=unit, gridcolor=GRID, zeroline=False, side="right",
                    type="log" if log else "linear", tickfont=dict(size=10), fixedrange=False,
                    showline=True, linecolor=BORDER),
         xaxis=dict(gridcolor=GRID, range=x_range, showline=True, linecolor=BORDER,
                    showspikes=True, spikemode="across", spikesnap="cursor", spikedash="dot",
-                   spikecolor="#5B6570", spikethickness=1, tickfont=dict(size=10),
+                   spikecolor="#6F6C72", spikethickness=1, tickfont=dict(size=10),
                    rangeslider=dict(visible=slider, thickness=0.05, bgcolor=PANEL_2,
                                     bordercolor=BORDER, borderwidth=1)),
     )
@@ -942,7 +947,7 @@ def legal_footer():
 
 
 def keyboard_shortcuts():
-    """'/' jumps to the command bar; Esc closes any open (i) box. Runs once per page."""
+    """'/' jumps to the command bar; Esc closes any open (i) box; charts only scroll-zoom after a click. Runs once per page."""
     import streamlit.components.v1 as components
     components.html("""<script>
     const doc = window.parent.document;
@@ -956,6 +961,21 @@ def keyboard_shortcuts():
         }
         if (e.key === 'Escape') { doc.querySelectorAll('details.info[open]').forEach(d => d.removeAttribute('open')); }
       });
+      // Charts only zoom with the mouse wheel after you click on them, so scrolling down a page never zooms by accident.
+      // Moving the mouse off a chart switches it back off.
+      doc.addEventListener('mousedown', (e) => {
+        const plot = e.target.closest && e.target.closest('.js-plotly-plot');
+        doc.querySelectorAll('.js-plotly-plot[data-hfm-zoom]').forEach(p => { if (p !== plot) p.removeAttribute('data-hfm-zoom'); });
+        if (plot) plot.setAttribute('data-hfm-zoom', '1');
+      }, true);
+      doc.addEventListener('mouseout', (e) => {
+        const plot = e.target.closest && e.target.closest('.js-plotly-plot');
+        if (plot && !plot.contains(e.relatedTarget)) plot.removeAttribute('data-hfm-zoom');
+      }, true);
+      doc.addEventListener('wheel', (e) => {
+        const plot = e.target.closest && e.target.closest('.js-plotly-plot');
+        if (plot && !plot.hasAttribute('data-hfm-zoom')) e.stopPropagation();   // let the page scroll instead
+      }, {capture: true, passive: true});
     }
     </script>""", height=0)
 
@@ -982,3 +1002,94 @@ def restore_consent(cookie_name):
       if (m && !url.searchParams.get('k')) {{ url.searchParams.set('k', m[1]); top.location.replace(url.toString()); }}
     }} catch (e) {{}}
     </script>""", height=0)
+
+
+# ----------------------------------------------------------------- futuristic loading screen (v41)
+_SCENE_CACHE = {}
+def loading_html(message="Working", steps=None, scene=None):
+    """Full-screen animated loading screen: a spider crawling a web around an HF compass, or a roulette wheel
+    (picked at random unless `scene` is given). Pure SVG/CSS animation, no scripts. Decorative only."""
+    import random as _r
+    import loader_art
+    scene = scene if scene in loader_art.SCENES else _r.choice(list(loader_art.SCENES))
+    if scene not in _SCENE_CACHE: _SCENE_CACHE[scene] = loader_art.SCENES[scene]()
+    art = _SCENE_CACHE[scene]
+    steps = [s for s in (steps or ["Connecting to data sources", "Downloading prices", "Crunching the numbers",
+                                   "Checking the results", "Building the page"])][:6]
+    n = len(steps); cyc = 2.2 * n
+    lines = "".join(f'<div class="hfl-step" style="animation-delay:{i * 2.2:.1f}s;animation-duration:{cyc:.1f}s">'
+                    f'<span class="hfl-ok">&#9656;</span> {escape(s)}<span class="hfl-dots"></span></div>' for i, s in enumerate(steps))
+    return f"""
+<style>
+.hfl-wrap {{ position: fixed; inset: 0; z-index: 999999; background: radial-gradient(ellipse at center, #120304 0%, #000 70%);
+  overflow: hidden; font-family: {MONO}; color: {TEXT}; opacity: 0; pointer-events: none; animation: hfl-in .35s ease .5s forwards; }}
+@keyframes hfl-in {{ to {{ opacity: 1; pointer-events: auto; }} }}
+.hfl-wrap:before {{ content: ""; position: absolute; inset: -50%; background-image:
+  linear-gradient(rgba(232,33,43,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(232,33,43,.06) 1px, transparent 1px);
+  background-size: 44px 44px; transform: perspective(600px) rotateX(58deg); animation: hfl-grid 4s linear infinite; }}
+@keyframes hfl-grid {{ to {{ background-position: 0 44px, 0 0; }} }}
+.hfl-art {{ position: absolute; left: 0; right: 0; top: 0; bottom: 120px; width: 100%; height: calc(100% - 120px); object-fit: contain; }}
+.hfl-scan {{ position: absolute; left: 0; right: 0; height: 120px; background: linear-gradient(transparent, rgba(232,33,43,.08), transparent);
+  animation: hfl-scan 3.6s ease-in-out infinite; }}
+@keyframes hfl-scan {{ 0% {{ top: -120px; }} 100% {{ top: 100%; }} }}
+.hfl-panel {{ position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); width: min(560px, 92vw); text-align: left; }}
+.hfl-title {{ font-size: 13px; letter-spacing: .28em; color: {ACCENT}; text-transform: uppercase; text-align: center; }}
+.hfl-title:after {{ content: "_"; animation: hfl-blink 1s steps(1) infinite; }}
+@keyframes hfl-blink {{ 50% {{ opacity: 0; }} }}
+.hfl-bar {{ height: 3px; background: rgba(217,222,227,.12); margin: 12px 0 10px; overflow: hidden; }}
+.hfl-bar span {{ display: block; height: 100%; width: 35%; background: linear-gradient(90deg, transparent, {ACCENT}, #fff); animation: hfl-bar 1.3s ease-in-out infinite; }}
+@keyframes hfl-bar {{ 0% {{ transform: translateX(-100%); }} 100% {{ transform: translateX(300%); }} }}
+.hfl-steps {{ position: relative; height: 20px; font-size: 12px; color: {MUTED}; }}
+.hfl-step {{ position: absolute; inset: 0; opacity: 0; animation-name: hfl-step; animation-iteration-count: infinite; animation-timing-function: linear; }}
+@keyframes hfl-step {{ 0% {{ opacity: 0; transform: translateY(6px); }} 3% {{ opacity: 1; transform: none; }}
+  {100 / n - 3:.1f}% {{ opacity: 1; }} {100 / n:.1f}% {{ opacity: 0; transform: translateY(-6px); }} 100% {{ opacity: 0; }} }}
+.hfl-ok {{ color: {UP}; }}
+.hfl-dots:after {{ content: ""; animation: hfl-dots 1.2s steps(4) infinite; }}
+@keyframes hfl-dots {{ 0% {{ content: ""; }} 25% {{ content: "."; }} 50% {{ content: ".."; }} 75% {{ content: "..."; }} }}
+.hfl-corner {{ position: absolute; width: 34px; height: 34px; border: 2px solid {ACCENT}; opacity: .8; }}
+.hfl-c1 {{ top: 22px; left: 22px; border-right: 0; border-bottom: 0; }} .hfl-c2 {{ top: 22px; right: 22px; border-left: 0; border-bottom: 0; }}
+.hfl-c3 {{ bottom: 22px; left: 22px; border-right: 0; border-top: 0; }} .hfl-c4 {{ bottom: 22px; right: 22px; border-left: 0; border-top: 0; }}
+.hfl-tag {{ position: absolute; top: 30px; right: 70px; font-size: 10px; color: {DIM}; letter-spacing: .2em; }}
+@media (prefers-reduced-motion: reduce) {{ .hfl-wrap *, .hfl-wrap:before {{ animation: none !important; }} .hfl-step:first-child {{ opacity: 1; }} .hfl-wrap {{ opacity: 1; }} }}
+</style>
+<div class="hfl-wrap" role="status" aria-live="polite" aria-label="{escape(message)}">
+  <img class="hfl-art" src="{art}" alt="">
+  <div class="hfl-scan"></div>
+  <div class="hfl-corner hfl-c1"></div><div class="hfl-corner hfl-c2"></div><div class="hfl-corner hfl-c3"></div><div class="hfl-corner hfl-c4"></div>
+  <div class="hfl-tag">HF MACRO TERMINAL · v41</div>
+  <div class="hfl-panel">
+    <div class="hfl-title">{escape(message)}</div>
+    <div class="hfl-bar"><span></span></div>
+    <div class="hfl-steps">{lines}</div>
+  </div>
+</div>"""
+
+
+class loading:
+    """with ui.loading("Running the model", ["Downloading prices", ...], scene="model"): slow_work()
+    v42: a full-screen animated loading screen drawn from real data (see look.py). scene picks the screen:
+    feeds, model, filings, river, news, decoder, bubble (old names: web = news decoder)."""
+    def __init__(self, message="Working", steps=None, scene=None, **extra):
+        self.message, self.steps, self.extra, self.inner = message, steps, extra, None
+        self.scene = {"web": "decoder", "roulette": None}.get(scene, scene)
+    def __enter__(self):
+        try:
+            import look
+            self.inner = look.Loading(self.scene, self.message, self.steps, load_fonts=DATA.get("consent") == "a", **self.extra)
+            self.inner.__enter__()
+        except Exception:
+            self.inner = None
+        return self
+    def __exit__(self, *exc):
+        if self.inner is not None:
+            self.inner.__exit__(*exc)
+        return False
+
+
+def show_off_effects(idle_seconds=120):
+    """v42: the new intro (once per browser session), page animations and the idle screensaver."""
+    try:
+        import look
+        look.effects(st.session_state.get("anim", True), DATA.get("consent") == "a", idle_seconds)
+    except Exception:
+        pass
