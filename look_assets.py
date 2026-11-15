@@ -738,7 +738,51 @@ function playIntro() {
   }
   frame.lastM = -1; frame();
 }
-playIntro();
+// ---------------------------------------------------------------- v42 boot: AWAKENING → data panels flood in → zoom out → dots → the logo intro
+const BOOT = __BOOT__;
+function boot(done) {
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:30;background:#050506;transition:opacity .6s'; document.body.appendChild(cv);
+  const W = innerWidth, H = innerHeight, dpr = Math.min(2, devicePixelRatio || 1); cv.width = W * dpr; cv.height = H * dpr; const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const skip = document.createElement('button'); skip.textContent = 'SKIP ▸'; skip.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:31;background:none;border:1px solid #232127;color:#6F6C72;font:11px "JetBrains Mono",Consolas,monospace;letter-spacing:.18em;padding:7px 14px;cursor:pointer';
+  document.body.appendChild(skip);
+  const ease = u => u * u * u * (u * (u * 6 - 15) + 10), cl = v => Math.max(0, Math.min(1, v)), MONO = '"JetBrains Mono",Consolas,Menlo,monospace';
+  const NAMES = BOOT.names, SRC = BOOT.sources, hex = () => Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0').toUpperCase();
+  // a big field of data panels around the centre; the nearest switch on first
+  const CW = 250, CH = 140, N = 17, P = [];
+  for (let gx = -N; gx <= N; gx++) for (let gy = -N; gy <= N; gy++) { const d = Math.hypot(gx * 1.3, gy * 2.2); const nm = NAMES[(gx * 31 + gy * 17 + 999) % NAMES.length];
+    P.push({ x: gx * CW, y: gy * CH, d, on: .9 + d * .045 + Math.random() * .25, title: nm.n.toUpperCase().slice(0, 30), src: nm.s, rows: Array.from({ length: 5 }, () => `${hex()} ${(Math.random() * 100).toFixed(2).padStart(6, ' ')} ${Math.random() < .85 ? 'OK' : 'SYNC'}`), red: Math.random() < .06 }); }
+  P.sort((a, b) => a.on - b.on);
+  const LOG = ['HF MACRO CORE v42 · cold start', 'checking memory ............ ok', 'mounting cache · 6h window ... ok', ...SRC.map(([n, c, d]) => `link ${n.padEnd(8, ' ')} ${String(c).padStart(2, ' ')} series · ${d}`),
+    'handshake with FRED API ...... ok', 'decrypting session keys ...... ok', `indexing ${NAMES.length} indicators ...`, 'loading models · commodity, bubble, smart money', 'calibrating forecasts ........ ok', 'all systems nominal'];
+  const t0 = performance.now(); let fin = false;
+  const finish = () => { if (fin) return; fin = true; skip.remove(); cv.style.opacity = 0; setTimeout(() => cv.remove(), 650); done(); };
+  skip.onclick = () => { finish(); };
+  (function frame() { if (fin) return; const t = (performance.now() - t0) / 1000; g.fillStyle = '#050506'; g.fillRect(0, 0, W, H);
+    const Z = t < 3.0 ? 1 : 1 - ease(cl((t - 3.0) / 1.7)) * .955, cx = W / 2, cy = H / 2, conv = ease(cl((t - 4.75) / .9));
+    // panels
+    for (const p of P) { if (t < p.on) break; const k = cl((t - p.on) / .25); let x = cx + p.x * Z, y = cy + p.y * Z; const w = (CW - 18) * Z, h = (CH - 18) * Z;
+      if (conv > 0) { const tx = W * .08 + ((p.x / CW + N) / (2 * N)) * W * .84, ty = H * .5; x += (tx - x) * conv; y += (ty - y) * conv; }
+      if (x < -w || x > W + w || y < -h || y > H + h) continue;
+      if (w < 14) { const a = (p.red ? .9 : .55) * k * (1 - conv * .6); g.fillStyle = p.red ? `rgba(255,42,42,${a})` : `rgba(241,238,234,${a})`; const s = Math.max(1.2, w * .3) * (1 - conv * .5); g.fillRect(x - s / 2, y - s / 2, s, s); continue; }
+      g.strokeStyle = p.red ? `rgba(255,42,42,${.7 * k})` : `rgba(87,211,242,${.35 * k})`; g.strokeRect(x - w / 2, y - h / 2, w, h * k);
+      g.fillStyle = `rgba(9,9,11,${.85 * k})`; g.fillRect(x - w / 2 + 1, y - h / 2 + 1, w - 2, h * k - 2);
+      if (Z > .42) { const fs = 10 * Z; g.font = `${fs}px ${MONO}`; g.fillStyle = p.red ? `rgba(255,42,42,${k})` : `rgba(241,238,234,${.9 * k})`; g.fillText(p.title, x - w / 2 + 10 * Z, y - h / 2 + 18 * Z);
+        g.fillStyle = `rgba(111,108,114,${k})`; g.fillText(p.src, x + w / 2 - 50 * Z, y - h / 2 + 18 * Z);
+        const nRows = Math.floor(cl((t - p.on) / .6) * p.rows.length); for (let r = 0; r < nRows; r++) { g.fillStyle = r === nRows - 1 ? `rgba(87,211,242,${k})` : `rgba(154,150,157,${.8 * k})`; g.fillText(p.rows[r], x - w / 2 + 10 * Z, y - h / 2 + (38 + r * 17) * Z); } } }
+    // AWAKENING title + terminal log
+    const ta = t < 3.2 ? cl(t / .4) : 1 - cl((t - 3.2) / .6);
+    if (ta > 0) { g.textAlign = 'center'; const word = 'AWAKENING', n = Math.min(word.length, Math.floor(t / .07)); let shown = word.slice(0, n); if (t < 1.2 && n < word.length) shown += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      g.fillStyle = `rgba(5,5,6,${.75 * ta})`; g.fillRect(cx - 280, cy - 70, 560, 120);
+      g.font = `300 ${Math.min(64, W * .07)}px ${MONO}`; g.fillStyle = `rgba(241,238,234,${ta})`; g.fillText(shown, cx, cy); g.font = `10px ${MONO}`; g.fillStyle = `rgba(255,42,42,${ta})`;
+      g.fillText(t < 2.4 ? 'ESTABLISHING LINK · ' + SRC.length + ' DATA SOURCES' + '.'.repeat(1 + Math.floor(t * 3) % 3) : 'LINK ESTABLISHED · ' + NAMES.length + ' INDICATORS ONLINE', cx, cy + 32); g.textAlign = 'left';
+      const nl = Math.min(LOG.length, Math.floor((t - .4) / .17)); g.fillStyle = `rgba(5,5,6,${.8 * ta})`; g.fillRect(16, H - 30 - LOG.length * 16, 470, LOG.length * 16 + 14);
+      for (let i = 0; i < nl; i++) { g.font = `11px ${MONO}`; g.fillStyle = i === nl - 1 ? `rgba(255,42,42,${ta})` : `rgba(154,150,157,${ta})`; g.fillText('› ' + LOG[i], 26, H - 22 - (nl - 1 - i) * 16); } }
+    // HUD corners
+    g.strokeStyle = 'rgba(255,42,42,.5)'; [[20, 20, 1, 1], [W - 20, 20, -1, 1], [20, H - 20, 1, -1], [W - 20, H - 20, -1, -1]].forEach(([x, y, a, b]) => { g.beginPath(); g.moveTo(x, y + 24 * b); g.lineTo(x, y); g.lineTo(x + 24 * a, y); g.stroke(); });
+    g.font = `10px ${MONO}`; g.fillStyle = '#6F6C72'; g.fillText(`ZOOM ${(1 / Z).toFixed(1)}x · PANELS ${P.filter(p => t >= p.on).length}`, 30, 40);
+    if (t > 5.75) return finish(); requestAnimationFrame(frame); })();
+}
+boot(() => playIntro());
 </script></body></html>
 '''
 

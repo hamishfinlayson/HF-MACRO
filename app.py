@@ -191,7 +191,7 @@ import look
 import contextlib
 import importlib
 import scenes
-if getattr(look, "VERSION", None) != "43.2" or not hasattr(workshop, "explain") or not hasattr(scenes, "heartbeat_data"):   # a running app picks up updated files
+if getattr(look, "VERSION", None) != "43.4" or not hasattr(workshop, "explain") or not hasattr(scenes, "heartbeat_data"):   # a running app picks up updated files
     import look_assets, scenes_assets
     importlib.reload(look_assets)
     look = importlib.reload(look)
@@ -442,9 +442,9 @@ def region_page(region, intro):
                "to zoom, double-click to reset.")
     if region in ("US", "UK", "EA"):
         show_scene("heartbeat", scenes.heartbeat_data([(LOADED[i][0], LOADED[i][1]["series"]) for i in ids_for(region)],
-                                                     {"US": "US", "UK": "UK", "EA": "EURO AREA"}[region]), 300,
-                   "The heartbeat: each month, every growth and jobs indicator's 3-month change compared with its own history, "
-                   "pointed so that better is up, then averaged. Faster, taller beats = improving faster; flat = weakening.")
+                                                     {"US": "US", "UK": "UK", "EA": "EURO AREA"}[region]), 560,
+                   "The economy body scan: each part glows by how its indicators have moved over 3 months compared with their own history "
+                   "(green improving, amber steady, red weakening). The heartbeat underneath beats faster when the economy as a whole improves faster.")
     ui.card_grid(ids_for(region), columns=6)
     for n, group in enumerate(groups_for(region), start=1):
         ui.section(group, code=f"{n:02d}")
@@ -1572,9 +1572,9 @@ def world_day():
                 rows.append({"Ticker": tk, "Name": LOADED[ind_id][0]["name"], "1D %": (float(sr.iloc[-1]) / float(sr.iloc[-2]) - 1) * 100})
         data = scenes.markets_data(pd.DataFrame(rows)) if rows else None
     if data:
-        ui.section("The trading day around the world", "each market lights up as its session opens · glow = latest daily move", code="★")
-        show_scene("markets", data, 560, "Latest daily moves (may be delayed). The red band is daylight sweeping west: Asia opens first, "
-                   "then Europe, then the Americas. Ranked on the right.")
+        ui.section("Night globe", "each market fires a light beam as its session opens · green up, red down, taller = bigger move", code="★")
+        show_scene("markets", data, 580, "Latest daily moves (may be delayed). Markets fire in session order, Asia first, then Europe, then the Americas; "
+                   "arcs join markets moving the same way. Ranked on the right.")
 
 
 def page_wei():
@@ -1902,7 +1902,7 @@ def country_globe(tables=None):
             return
         data = look.recall("globe") or {"countries": [{"code": iso, "name": names[iso], "lat": la, "lon": lo, "k": []}
                                                        for iso, (la, lo) in scenes.COUNTRY_PLACES.items() if iso in names]}
-        show_scene("globe", data, 560,
+        show_scene("globe", data, 580,
                    f"IMF World Economic Outlook figures for {yr} (forecasts for the current year). Click a country, or let the globe turn by itself.")
     except Exception:
         pass
@@ -2079,9 +2079,9 @@ def page_news():
 def page_fx():
     try:
         _str = currency_strength(fetch_fx_history("USD", tuple(HEATMAP_CURRENCIES)))
-        ui.section("Currency gravity", "each currency is a planet sized and placed by its strength against the dollar · switch the period", code="★")
-        show_scene("fxg", scenes.fx_data(_str), 560, "Strength against the US dollar from ECB reference rates (via Frankfurter). Strong currencies "
-                   "float up and grow; the dotted thread joins the strongest and the weakest.")
+        ui.section("The currency solar system", "the dollar is the sun · stronger currencies orbit further out and glow brighter · switch the period", code="★")
+        show_scene("fxg", scenes.fx_data(_str), 580, "Strength against the US dollar from ECB reference rates (via Frankfurter). Strong currencies "
+                   "swing out to bigger, brighter orbits; weak ones spiral in towards the dollar.")
     except Exception:
         pass
     left, right = st.columns([1, 1.6], gap="small")
@@ -2113,6 +2113,15 @@ def page_fx():
 
 
 def page_curves():
+    _key = get_fred_key()
+    if _key:
+        try:
+            _ten = {n: fetch_fred(c, _key) for n, c in YIELD_CURVES["US Treasuries"]["points"] if n in ("3M", "6M", "1Y", "2Y", "5Y", "10Y", "30Y")}
+            ui.section("The yield surface", "20 years of US Treasury curves in 3D · red = inverted (short rates above long rates)", code="★")
+            show_scene("curves", scenes.curves_data(_ten, REC.get("US", [])), 580, "Real US Treasury yields from FRED, one curve per year-end plus "
+                       "the latest. Recession years are flagged; inversions came before the last recessions.")
+        except Exception:
+            pass
     st.markdown("Yield at each maturity today vs one year ago " + ui.info("yield curve", "Yield curve")
                 + ui.info("inversion", "Inversion"), unsafe_allow_html=True)
     cols = st.columns(len(YIELD_CURVES), gap="small")
@@ -2133,15 +2142,6 @@ def page_curves():
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"curve_{name}")
             st.dataframe(table.style.format({"Latest": "{:.2f}%", "1 year ago": "{:.2f}%"}, na_rep="-"),
                          hide_index=True, width="stretch")
-    _key = get_fred_key()
-    if _key:
-        try:
-            _ten = {n: fetch_fred(c, _key) for n, c in YIELD_CURVES["US Treasuries"]["points"] if n in ("3M", "6M", "1Y", "2Y", "5Y", "10Y", "30Y")}
-            ui.section("The yield curve through time", "US Treasuries, 2006 to today · red = inverted (short rates above long rates)", code="★")
-            show_scene("curves", scenes.curves_data(_ten, REC.get("US", [])), 560, "Real US Treasury yields from FRED, one curve per year-end plus "
-                       "the latest. Recession years are flagged; inversions came before the last recessions.")
-        except Exception:
-            pass
     ui.section("Yield-curve recession signal", "NY Fed model · P(US recession in 12 months)", code="02",
                about="recession probability")
     ind, res = LOADED["us_3m10y"]
@@ -2161,7 +2161,7 @@ def page_curves():
 def page_calendar():
     _cal, _err = load_calendar()
     if not _err:
-        show_scene("calendar", scenes.calendar_data(_cal), 420, "Release dates from FRED's calendar. Most US data comes out at 8:30am New York "
+        show_scene("calendar", scenes.calendar_data(_cal), 520, "Release dates from FRED's calendar. Most US data comes out at 8:30am New York "
                    "time (13:30 UK), which the countdown assumes.")
     left, right = st.columns([1.4, 1], gap="small")
     with left, st.container(border=True):
@@ -6641,6 +6641,18 @@ def page_takeovers():
         st.info("Takeovers is only available in the PC version.")
         return
     st.markdown(look.page_header("Models · PC only", "Takeovers"), unsafe_allow_html=True)
+    _c = setting_get("sec_contact", "")
+    if "@" in str(_c):
+        try:
+            with ui.loading("Reading SEC takeover filings", scene="radar", once="takeovers"):
+                _dl = to_deals_run(pd.Timestamp.now().strftime("%Y-%m-%d"), _c)
+            _dd = scenes.deals_data(_dl)
+            if _dd:
+                look.remember("deals", _dd["deals"])
+            show_scene("takeovers", _dd, 580, "The deal network: each private-equity firm lights up as a hub and a line shoots to every company "
+                       "named in its new SEC takeover filings, with the type of document. The full list is in section 1.")
+        except Exception:
+            pass
     st.caption("Private-equity takeovers and the legal ways to spot them early: official SEC filings and news wires only. "
                "Trading on a public rumour is legal; trading on a tip from someone inside a deal is insider dealing, a crime "
                "in the UK. Not financial advice.")
@@ -6668,8 +6680,6 @@ def page_takeovers():
             dl = pd.DataFrame()
             st.warning(f"Couldn't load the SEC filings ({type(exc).__name__}).")
         if dl is not None and not dl.empty:
-            show_scene("takeovers", scenes.deals_data(dl), 520, "The radar locks on to each company named in a new SEC takeover filing, "
-                       "with the private-equity firm and the type of document. The full list is below.")
             st.markdown(md_table(pd.DataFrame([{"Filed": r["filed"], "Company": _to_link(r["company"], r["link"]),
                                                 "Document": r["what"], "PE firm named": r["sponsor"]}
                                                for _, r in dl.head(30).iterrows()])))
@@ -6723,12 +6733,12 @@ def page_eventlab():
         st.info("Event Lab is only available in the PC version.")
         return
     st.markdown(look.page_header("Models · PC only", "Event Lab"), unsafe_allow_html=True)
+    show_scene("graveyard", scenes.eventlab_data(eventlab.PUBLISHED), 600, f"Every one of the {eventlab.PUBLISHED['total']} published strategies "
+               f"in the Open Asset Pricing test drops in, then the {eventlab.PUBLISHED['after']} that kept working after they were published light up.")
     st.caption("Ideas copied from published research and company events, tested in big batches the honest way: rules set "
                "on early years, then checked on years they never saw, after costs, against the S&P 500 and a small-company "
                "index. Not financial advice.")
     st.markdown("**In one line:** " + eventlab.HEADLINE)
-    show_scene("graveyard", scenes.eventlab_data(eventlab.PUBLISHED), 600, f"Every one of the {eventlab.PUBLISHED['total']} published strategies "
-               f"in the Open Asset Pricing test drops in, then the {eventlab.PUBLISHED['after']} that kept working after they were published light up.")
     st.markdown("### 1. Finished tests")
     st.markdown(md_table(pd.DataFrame([{"": r[0], "Group": r[1], "Idea": f"**{r[2]}**", "Build years": r[3],
                                         "Years it never saw": r[4], "Why": r[5]} for r in eventlab.RESULTS])))

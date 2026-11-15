@@ -138,7 +138,9 @@ def calendar_data(cal, now=None):
         h = (when - now).total_seconds() / 3600
         if 0 < h < 14 * 24:
             rows.append({"n": str(r["release_name"])[:28], "h": round(h, 3), "prev": "", "c": f"{when:%a %d %b} · 13:30 UK (8:30am New York)"})
-    return {"cal": rows[:9]} if rows else None
+    past = cal[pd.to_datetime(cal["date"]) < pd.Timestamp(now).normalize()].sort_values("date")
+    last = str(past["release_name"].iloc[-1]).upper()[:28] if len(past) else "THE LATEST RELEASE"
+    return {"cal": rows[:9], "last": last} if rows else None
 
 
 def heartbeat_data(items, region, months=10):
@@ -162,4 +164,13 @@ def heartbeat_data(items, region, months=10):
     score = df.mean(axis=1, skipna=True).dropna().tail(months)
     if score.empty:
         return None
-    return {"beat": [{"d": f"{d:%b %Y}".upper(), "r": region, "z": float(np.tanh(v / 1.2))} for d, v in score.items()]}
+    # the body scan: one 'organ' per indicator group, glowing by its latest reading
+    slots = [(-26, -115), (26, -78), (0, 12), (-28, 92), (28, 98)]
+    by_group = {}
+    for (ind, _), z in zip([it for it in items if it[0].get("good_when") in ("up", "down") and it[1] is not None and len(it[1]) >= 60], zs):
+        last = z.dropna()
+        if len(last):
+            by_group.setdefault(ind.get("group", "Other"), []).append(float(last.iloc[-1]))
+    groups = sorted(by_group.items(), key=lambda kv: -len(kv[1]))[:5]
+    organs = [{"n": g, "x": slots[i][0], "y": slots[i][1], "z": float(np.tanh(np.mean(v) / 1.2))} for i, (g, v) in enumerate(groups)]
+    return {"beat": [{"d": f"{d:%b %Y}".upper(), "r": region, "z": float(np.tanh(v / 1.2))} for d, v in score.items()], "organs": organs}

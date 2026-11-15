@@ -19,7 +19,7 @@ from pathlib import Path
 import look_assets as A
 
 HERE = Path(__file__).parent
-VERSION = "43.2"
+VERSION = "43.4"
 CACHE = HERE / "data" / "cache" / "look_cache.json"
 FONTS_URL = ("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800"
              "&family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap")
@@ -176,8 +176,15 @@ class Loading:
 
 # ---------------------------------------------------------------- intro, page animations
 def intro_doc(load_fonts=False):
+    try:
+        import indicators
+        names = [{"n": i["name"].split(" (")[0], "s": SOURCES.get(i["source"], (str(i["source"]).upper(), ""))[0]} for i in indicators.INDICATORS]
+        sources = source_counts(indicators.INDICATORS)
+    except Exception:
+        names, sources = [{"n": "S&P 500", "s": "FRED"}], [["FRED", 48, "api.stlouisfed.org"]]
+    boot = json.dumps({"names": names, "sources": sources}).replace("</", "<\\/")
     return (A.INTRO_HTML.replace("__FONTS__", _fonts(load_fonts)).replace("__SPX__", A.INTRO_SPX)
-            .replace("__FROM__", A.INTRO_FROM).replace("__TO__", A.INTRO_TO))
+            .replace("__FROM__", A.INTRO_FROM).replace("__TO__", A.INTRO_TO).replace("__BOOT__", boot))
 
 
 def intro_script(load_fonts=False):
@@ -189,7 +196,7 @@ def intro_script(load_fonts=False):
     const f = P.createElement('iframe'); f.className = 'hf-intro'; f.title = 'HF Macro intro';
     f.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:2147483600;background:transparent';
     f.setAttribute('allowtransparency', 'true'); f.srcdoc = {_js(intro_doc(load_fonts))}; P.body.appendChild(f);
-    setTimeout(() => {{ if (f.isConnected) f.remove(); }}, 15000);
+    setTimeout(() => {{ if (f.isConnected) f.remove(); }}, 21000);
   }} catch (e) {{}}
 }})();</script>"""
 
