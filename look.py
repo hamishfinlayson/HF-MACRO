@@ -19,7 +19,7 @@ from pathlib import Path
 import look_assets as A
 
 HERE = Path(__file__).parent
-VERSION = "42.7"
+VERSION = "43.1"
 CACHE = HERE / "data" / "cache" / "look_cache.json"
 FONTS_URL = ("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800"
              "&family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap")
@@ -59,7 +59,7 @@ def _js(s):
 
 
 # ---------------------------------------------------------------- loading screens
-KINDS = ("feeds", "model", "filings", "river", "news", "decoder", "bubble")
+KINDS = ("feeds", "model", "filings", "river", "news", "decoder", "bubble", "radar")
 SOURCES = {"fred": ("FRED", "api.stlouisfed.org · US data"), "fred_ratio": ("FRED", "api.stlouisfed.org · US data"),
            "ons": ("ONS", "api.ons.gov.uk · UK data"), "yahoo": ("YAHOO", "query1.finance.yahoo.com · markets"),
            "ecb": ("ECB", "data-api.ecb.europa.eu · euro area"), "eia": ("EIA", "api.eia.gov · energy"),
@@ -74,16 +74,19 @@ def source_counts(indicators):
     return sorted(out.values(), key=lambda r: -r[1])
 
 
+FULL_RUN_MS = {"radar": 9000, "feeds": 6500, "model": 16500, "filings": 14500, "river": 14500, "news": 11000, "decoder": 17000, "bubble": 7500}
+
+
 def loader_data(kind, **extra):
     """The real data each loading screen draws."""
     s = _snapshot()
-    d = {"kind": kind}
+    d = {"kind": kind, "min": FULL_RUN_MS.get(kind, 6000)}
     if kind == "feeds":
         d.update(sources=extra.get("sources") or [["FRED", 48, "api.stlouisfed.org"]], logoSvg=s["logoSvg"])
     elif kind == "model":
         d.update(m3=s["m3"], m3eq=s["m3eq"])
     elif kind == "filings":
-        d.update(tsla=s["tsla"])
+        d.update(tsla=s["tsla"][:16])
     elif kind == "river":
         d.update(river=s["river"])
     elif kind == "news":
@@ -136,9 +139,9 @@ def overlay_script(doc):
 
 class Loading:
     """with look.Loading("model", "Working out this week's picks"): slow_work()"""
-    def __init__(self, kind=None, message="", steps=None, load_fonts=False, once=None, **extra):
+    def __init__(self, kind=None, message="", steps=None, load_fonts=False, once=None, force=False, **extra):
         self.kind = kind if kind in KINDS else guess_kind(message)
-        self.load_fonts, self.extra, self.box, self.once, self.force = load_fonts, extra, None, once, False
+        self.load_fonts, self.extra, self.box, self.once, self.force = load_fonts, extra, None, once, bool(force)
 
     def __enter__(self):
         try:
@@ -150,9 +153,14 @@ class Loading:
                 st.session_state["hfl_seen_" + self.once] = True
                 self.force = True
             self.box = st.empty()
+            if self.kind == "radar":
+                import scenes
+                deals = recall("deals") or [{"t": "Waiting for the first SEC read", "b": "—", "f": ""}]
+                doc = scenes.html("takeovers", {"deals": deals}, self.load_fonts, owner="__OWNER__", min_ms=FULL_RUN_MS["radar"], force=self.force)
+            else:
+                doc = loader_doc(self.kind, self.load_fonts, owner="__OWNER__", force=self.force, delay=0 if self.force else 150, **self.extra)
             with self.box.container():
-                components.html(overlay_script(loader_doc(self.kind, self.load_fonts, owner="__OWNER__", force=self.force,
-                                                          delay=0 if self.force else 150, **self.extra)), height=0)
+                components.html(overlay_script(doc), height=0)
         except Exception:
             self.box = None
         return self

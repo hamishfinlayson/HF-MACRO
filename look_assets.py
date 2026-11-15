@@ -378,7 +378,7 @@ function news(stage) {
 }
 // ================================================================ 5. Bubble Watch radar checklist (real sign names)
 function bubble(stage) {
-  const F = frame(stage, 'Scanning systemic risk indicators', 'BUBBLE WATCH · 66 SIGNALS · 6 STAGES', D.lights ? 'Real sign names · lights from your last Bubble Watch run' : 'Real sign names · checking each sign');
+  const F = frame(stage, 'Scanning systemic risk indicators', 'BUBBLE WATCH · 66 SIGNALS · 6 STAGES', D.lights ? 'Real sign names · lights from your last Bubble Watch run' : 'Real sign names · example lights until Bubble Watch has run once');
   const cv = document.createElement('canvas'); const W = innerWidth, Hh = innerHeight, dpr = Math.min(2, devicePixelRatio || 1);
   const RW = Math.min(W * .42, Hh * .72); cv.style.cssText = `position:absolute;left:${W * .05}px;top:${(Hh - RW) / 2}px;width:${RW}px;height:${RW}px`; cv.width = RW * dpr; cv.height = RW * dpr; F.el.appendChild(cv);
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -386,7 +386,8 @@ function bubble(stage) {
   const S = D.signs, STG = D.stages; let html = '', lastSt = 0;
   S.forEach((s, i) => { if (s.stage !== lastSt) { lastSt = s.stage; html += `<div class="st">${s.stage} · ${STG[s.stage]}</div>`; } html += `<div data-i="${i}"><i></i>${s.name}</div>`; }); list.innerHTML = html;
   const rnd = i => { const x = Math.sin(i * 9301 + 49297) * 233280; return x - Math.floor(x); };
-  const lights = D.lights && D.lights.length === S.length ? D.lights : S.map(() => 3);
+  const rnd0 = i => { const x = Math.sin(i * 9301 + 49297) * 233280; return x - Math.floor(x); };
+  const lights = D.lights && D.lights.length === S.length ? D.lights.map((v, i) => v === 3 ? [0, 1, 2][Math.floor(rnd0(i + 11) * 3)] : v) : S.map((s, i) => { const r = rnd0(i + 3); return s.stage <= 2 ? (r < .45 ? 2 : r < .8 ? 1 : 0) : s.stage <= 4 ? (r < .25 ? 2 : r < .6 ? 1 : 0) : (r < .12 ? 2 : r < .4 ? 1 : 0); });
   const COL = ['#FF5C6C', '#FFB347', '#3FD68A', '#57D3F2'];
   const dots = S.map((s, i) => { const a0 = -Math.PI / 2 + (s.stage - 1) * Math.PI / 3, inStage = S.filter(z => z.stage === s.stage), j = inStage.indexOf(s);
     return { a: a0 + Math.PI / 3 * (.12 + .76 * (j + .5) / inStage.length), r: .3 + .62 * rnd(i * 7 + 1), seen: false, glow: 0 }; });
@@ -537,11 +538,11 @@ if (D.owner) {   // overlay mode: fade in after a short delay, and remove itself
   const skip = document.createElement('div'); skip.textContent = 'CLICK TO SKIP'; skip.style.cssText = 'position:fixed;right:28px;bottom:26px;z-index:60;font:9px var(--mono);letter-spacing:.2em;color:var(--m);opacity:0;transition:opacity .6s';
   document.body.appendChild(skip); addEventListener('click', close);
   setInterval(() => { let gone = true; try { gone = !parent.document.querySelector('[data-hfl-owner="' + D.owner + '"]'); } catch (e) {}
-    if (D.force && shownAt && performance.now() - shownAt > (D.min || 4500) + 1500) { skip.style.opacity = 1; return close(); }
+    if (D.force && shownAt && performance.now() - shownAt > (D.min || 6000)) { skip.style.opacity = 1; return close(); }
     if (!gone || closing) return;
     if (!shownAt) return close();                       // the work finished before the screen even appeared
     skip.style.opacity = 1;                               // work done: let the animation finish its moment, then go
-    if (performance.now() - shownAt > (D.min || 4500)) close(); }, 200);
+    if (performance.now() - shownAt > (D.min || 6000)) close(); }, 200);
 }
 </script></body></html>
 '''

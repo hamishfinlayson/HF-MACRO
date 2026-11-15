@@ -190,11 +190,26 @@ if CONSENT is None and st.query_params.get("p") != "LEGAL":
 import look
 import contextlib
 import importlib
-if getattr(look, "VERSION", None) != "42.7" or not hasattr(workshop, "explain"):   # a running app picks up updated files
-    import look_assets
+import scenes
+if getattr(look, "VERSION", None) != "43.1" or not hasattr(workshop, "explain") or not hasattr(scenes, "heartbeat_data"):   # a running app picks up updated files
+    import look_assets, scenes_assets
     importlib.reload(look_assets)
     look = importlib.reload(look)
     workshop = importlib.reload(workshop)
+    importlib.reload(scenes_assets)
+    scenes = importlib.reload(scenes)
+
+
+def show_scene(name, data, height, caption=None):
+    """v42 page animations (scenes.py). Skipped quietly when the data isn't there."""
+    if not data:
+        return
+    try:
+        components.html(scenes.html(name, data, CONSENT == "a"), height=height)
+        if caption:
+            st.caption(caption)
+    except Exception:
+        pass
 
 
 @st.cache_resource(ttl=1800, show_spinner=False)
@@ -425,6 +440,11 @@ def panel_grid(ids, columns=2):
 def region_page(region, intro):
     st.caption(intro + " Click any card or OPEN ↗ for the full-screen chart. Drag across a chart "
                "to zoom, double-click to reset.")
+    if region in ("US", "UK", "EA"):
+        show_scene("heartbeat", scenes.heartbeat_data([(LOADED[i][0], LOADED[i][1]["series"]) for i in ids_for(region)],
+                                                     {"US": "US", "UK": "UK", "EA": "EURO AREA"}[region]), 300,
+                   "The heartbeat: each month, every growth and jobs indicator's 3-month change compared with its own history, "
+                   "pointed so that better is up, then averaged. Faster, taller beats = improving faster; flat = weakening.")
     ui.card_grid(ids_for(region), columns=6)
     for n, group in enumerate(groups_for(region), start=1):
         ui.section(group, code=f"{n:02d}")
@@ -1543,6 +1563,15 @@ def page_wei():
     with right, st.container(border=True):
         ui.panel_title("Chart", "TRADINGVIEW · MAY BE DELAYED")
         tv_chart_picker("wei_chart", 0)
+    if not PUBLIC:
+        try:
+            _tick = tuple(t for items in EQUITY_MONITOR.values() for t, _ in items)
+            _perf = pd.concat([performance_table(fetch_yahoo_batch(_tick), items) for items in EQUITY_MONITOR.values()], ignore_index=True)
+            ui.section("The trading day around the world", "each market lights up as its session opens · glow = latest daily move", code="★")
+            show_scene("markets", scenes.markets_data(_perf), 560, "Latest daily moves from Yahoo Finance (may be delayed). The red band is daylight sweeping "
+                       "west: Asia opens first, then Europe, then the Americas. Ranked on the right.")
+        except Exception:
+            pass
     equity_ids = ["ftse100", "ftse250", "sp500", "nasdaq", "dax", "stoxx50", "nikkei"]
     ui.section("Equity outlook", "12-month forecasts and what the drivers say", code="02",
                about="market forecast")
@@ -1844,6 +1873,16 @@ def page_global():
         st.info(f"BIS policy rates unavailable right now ({type(exc).__name__}).")
 
 
+def country_globe(tables):
+    """The spinning globe, from the IMF tables the Country page has already downloaded."""
+    try:
+        yr = datetime.now().year
+        show_scene("globe", scenes.countries_data(tables, {k: v["name"] for k, v in COUNTRIES.items()}, yr), 560,
+                   f"IMF World Economic Outlook figures for {yr} (forecasts for the current year). Click a country, or let the globe turn by itself.")
+    except Exception:
+        pass
+
+
 def page_country():
     codes = list(COUNTRIES)
     iso = st.selectbox("Country", codes, index=codes.index("GBR"),
@@ -1851,14 +1890,17 @@ def page_country():
     c = COUNTRIES[iso]
     this_year = datetime.now().year
     years = tuple(range(2000, this_year + 6))
-    imf = {}
+    imf, imf_tables = {}, {}
     for code in IMF_INDICATORS:
         try:
             table = fetch_imf(code, years)
+            imf_tables[code] = table
             imf[code] = table.loc[iso].dropna()
             imf[code].attrs["source"] = table.attrs.get("source", "IMF")
         except Exception:
             imf[code] = pd.Series(dtype=float)
+    if imf_tables:
+        country_globe(imf_tables)
     try:
         rates = fetch_policy_rates(tuple(sorted({x["bis"] for x in COUNTRIES.values()})))
         policy = rates[c["bis"]].dropna() if c["bis"] in rates.columns else pd.Series(dtype=float)
@@ -2016,6 +2058,13 @@ def page_fx():
     with right, st.container(border=True):
         ui.panel_title("Currency strength heatmap", "% CHANGE", about="currency strength")
         strength_heatmap()
+    try:
+        _str = currency_strength(fetch_fx_history("USD", tuple(HEATMAP_CURRENCIES)))
+        ui.section("Currency gravity", "each currency is a planet sized and placed by its strength against the dollar · switch the period", code="★")
+        show_scene("fxg", scenes.fx_data(_str), 560, "Strength against the US dollar from ECB reference rates (via Frankfurter). Strong currencies "
+                   "float up and grow; the dotted thread joins the strongest and the weakest.")
+    except Exception:
+        pass
     ui.section("Winners & losers", "strongest and weakest currencies", code="FX", about="currency strength")
     with st.container(border=True):
         c1, c2 = st.columns([2, 1])
@@ -2058,6 +2107,15 @@ def page_curves():
             st.plotly_chart(fig, width="stretch", config=ui.PLOT_CONFIG, key=f"curve_{name}")
             st.dataframe(table.style.format({"Latest": "{:.2f}%", "1 year ago": "{:.2f}%"}, na_rep="-"),
                          hide_index=True, width="stretch")
+    _key = get_fred_key()
+    if _key:
+        try:
+            _ten = {n: fetch_fred(c, _key) for n, c in YIELD_CURVES["US Treasuries"]["points"] if n in ("3M", "6M", "1Y", "2Y", "5Y", "10Y", "30Y")}
+            ui.section("The yield curve through time", "US Treasuries, 2006 to today · red = inverted (short rates above long rates)", code="★")
+            show_scene("curves", scenes.curves_data(_ten, REC.get("US", [])), 560, "Real US Treasury yields from FRED, one curve per year-end plus "
+                       "the latest. Recession years are flagged; inversions came before the last recessions.")
+        except Exception:
+            pass
     ui.section("Yield-curve recession signal", "NY Fed model · P(US recession in 12 months)", code="02",
                about="recession probability")
     ind, res = LOADED["us_3m10y"]
@@ -2075,6 +2133,10 @@ def page_curves():
 
 
 def page_calendar():
+    _cal, _err = load_calendar()
+    if not _err:
+        show_scene("calendar", scenes.calendar_data(_cal), 420, "Release dates from FRED's calendar. Most US data comes out at 8:30am New York "
+                   "time (13:30 UK), which the countdown assumes.")
     left, right = st.columns([1.4, 1], gap="small")
     with left, st.container(border=True):
         ui.panel_title("US key releases", "NEXT 45 DAYS · FRED", about="NFP")
@@ -4699,7 +4761,8 @@ def page_my_trades():
     c1, c2, c3 = st.columns([1, 1, 2])
     budget = float(c1.number_input("Demo money to use (£)", 100.0, 1_000_000.0, 1000.0, 100.0, key="mt_budget"))
     fin = float(st.session_state.get("cm_fin", workshop.LONG_FINANCING_WEEK))
-    if c2.button("▶ Get the latest picks", key="mt_run", type="primary"):
+    pressed = c2.button("▶ Get the latest picks", key="mt_run", type="primary")
+    if pressed:
         st.session_state["cm_go"] = True
     version_picker("mt_version")
     labels = {1.0: "All in the model", 0.5: "50% model / 50% S&P 500", 0.3: "30% model / 70% S&P 500"}
@@ -4725,7 +4788,7 @@ def page_my_trades():
         _my_trades_tracker(None, budget)
         return
     try:
-        with ui.loading("Walking forward through history", scene="model", once="model"):
+        with ui.loading("Walking forward through history", scene="model", once="model", force=pressed):
             res = lab_cmodel_run(fin, pd.Timestamp.now().strftime("%Y-%m-%d"), current_version())
             if res and "decision" not in res:          # a result saved by an older version: work it out again once
                 lab_cmodel_run.clear()
@@ -6570,12 +6633,17 @@ def page_takeovers():
         st.caption("Official SEC documents that name one of ~50 big private-equity firms. These come days to weeks AFTER the "
                    "deal is announced, so the big jump has usually already happened.")
         try:
-            with ui.loading("Reading SEC takeover filings", scene="filings", once="takeovers"):
+            with ui.loading("Reading SEC takeover filings", scene="radar", once="takeovers"):
                 dl = to_deals_run(now.strftime("%Y-%m-%d"), contact)
+            _dd = scenes.deals_data(dl)
+            if _dd:
+                look.remember("deals", _dd["deals"])
         except Exception as exc:
             dl = pd.DataFrame()
             st.warning(f"Couldn't load the SEC filings ({type(exc).__name__}).")
         if dl is not None and not dl.empty:
+            show_scene("takeovers", scenes.deals_data(dl), 520, "The radar locks on to each company named in a new SEC takeover filing, "
+                       "with the private-equity firm and the type of document. The full list is below.")
             st.markdown(md_table(pd.DataFrame([{"Filed": r["filed"], "Company": _to_link(r["company"], r["link"]),
                                                 "Document": r["what"], "PE firm named": r["sponsor"]}
                                                for _, r in dl.head(30).iterrows()])))
@@ -6633,6 +6701,8 @@ def page_eventlab():
                "on early years, then checked on years they never saw, after costs, against the S&P 500 and a small-company "
                "index. Not financial advice.")
     st.markdown("**In one line:** " + eventlab.HEADLINE)
+    show_scene("graveyard", scenes.eventlab_data(eventlab.PUBLISHED), 600, f"Every one of the {eventlab.PUBLISHED['total']} published strategies "
+               f"in the Open Asset Pricing test drops in, then the {eventlab.PUBLISHED['after']} that kept working after they were published light up.")
     st.markdown("### 1. Finished tests")
     st.markdown(md_table(pd.DataFrame([{"": r[0], "Group": r[1], "Idea": f"**{r[2]}**", "Build years": r[3],
                                         "Years it never saw": r[4], "Why": r[5]} for r in eventlab.RESULTS])))
